@@ -85,6 +85,11 @@ body {
   text-align: center;
 }
 
+.weekday-cell.col-hover,
+.day-cell.col-hover {
+  background: #f5f5f5;
+}
+
 .month-cell {
   font-size: 12px;
   text-align: center;
@@ -129,8 +134,13 @@ body {
   font-size: 12px;
 }
 
-.tld-row:hover {
+.tld-row:hover,
+.tld-row.row-hover {
   background: #f5f5f5;
+}
+
+.cell-row.row-hover {
+  background: rgba(0, 0, 0, 0.03);
 }
 
 /* Cell Grid Wrapper (scrollable) */
@@ -167,6 +177,7 @@ body {
   cursor: pointer;
   position: relative;
   transition: transform 0.1s ease;
+  background: #fff;
 }
 
 .cell:hover {
@@ -176,8 +187,19 @@ body {
 }
 
 .cell.empty {
-  background: transparent;
+  background: #fff;
   border-color: #f0f0f0;
+}
+
+.cell.col-hover::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: rgba(0, 0, 0, 0.03);
+  top: -4.5px;
+  pointer-events: none;
 }
 
 /* Tooltip */

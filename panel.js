@@ -18,6 +18,7 @@ class BulletHistory {
     this.renderGrid();
     this.setupScrollSync();
     this.setupTooltips();
+    this.setupRowHover();
   }
 
   // Generate date range (today - N days ago)
@@ -173,7 +174,9 @@ class BulletHistory {
 
     this.dates.forEach((dateStr, index) => {
       const date = new Date(dateStr + 'T00:00:00'); // Add time to avoid timezone issues
-      const monthName = date.toLocaleString('en-US', { month: 'short' });
+      const monthName = date.toLocaleString('en-US', { month: 'long' });
+      const year = date.getFullYear();
+      const monthYearKey = `${monthName} ${year}`;
       const dayNum = date.getDate();
       const weekdayName = date.toLocaleString('en-US', { weekday: 'short' }).charAt(0);
 
@@ -183,7 +186,7 @@ class BulletHistory {
       }
 
       // Month header (only show when month changes)
-      if (monthName !== currentMonth) {
+      if (monthYearKey !== currentMonth) {
         if (monthSpan > 0) {
           // Create month cell for previous month
           const monthCell = document.createElement('div');
@@ -193,7 +196,7 @@ class BulletHistory {
           monthCell.textContent = currentMonth;
           monthRow.appendChild(monthCell);
         }
-        currentMonth = monthName;
+        currentMonth = monthYearKey;
         monthSpan = 1;
       } else {
         monthSpan++;
@@ -203,12 +206,14 @@ class BulletHistory {
       const weekdayCell = document.createElement('div');
       weekdayCell.className = 'weekday-cell';
       weekdayCell.textContent = weekdayName;
+      weekdayCell.dataset.colIndex = index;
       weekdayRow.appendChild(weekdayCell);
 
       // Day number
       const dayCell = document.createElement('div');
       dayCell.className = 'day-cell';
       dayCell.textContent = dayNum;
+      dayCell.dataset.colIndex = index;
       dayRow.appendChild(dayCell);
 
       // Last month cell
@@ -250,22 +255,26 @@ class BulletHistory {
       });
     });
 
-    domains.forEach(domain => {
+    domains.forEach((domain, index) => {
       // TLD label
       const tldRow = document.createElement('div');
       tldRow.className = 'tld-row';
       tldRow.textContent = domain;
+      tldRow.dataset.rowIndex = index;
       tldColumn.appendChild(tldRow);
 
       // Cell row
       const cellRow = document.createElement('div');
       cellRow.className = 'cell-row';
+      cellRow.dataset.rowIndex = index;
 
-      this.dates.forEach(dateStr => {
+      this.dates.forEach((dateStr, colIndex) => {
         const cell = document.createElement('div');
         cell.className = 'cell';
         cell.dataset.domain = domain;
         cell.dataset.date = dateStr;
+        cell.dataset.colIndex = colIndex;
+        cell.dataset.rowIndex = index;
 
         const dayData = this.historyData[domain].days[dateStr];
 
@@ -342,6 +351,112 @@ class BulletHistory {
     cellGrid.addEventListener('mouseout', (e) => {
       if (e.target.classList.contains('cell')) {
         tooltip.classList.remove('visible');
+      }
+    });
+  }
+
+  // Setup row hover highlighting
+  setupRowHover() {
+    const tldColumn = document.getElementById('tldColumn');
+    const cellGrid = document.getElementById('cellGrid');
+    const weekdayRow = document.getElementById('weekdayRow');
+    const dayRow = document.getElementById('dayRow');
+
+    // Hover over TLD row
+    tldColumn.addEventListener('mouseover', (e) => {
+      if (e.target.classList.contains('tld-row')) {
+        const rowIndex = e.target.dataset.rowIndex;
+        // Highlight the TLD row
+        e.target.classList.add('row-hover');
+        // Highlight the corresponding cell row
+        const cellRow = cellGrid.querySelector(`.cell-row[data-row-index="${rowIndex}"]`);
+        if (cellRow) {
+          cellRow.classList.add('row-hover');
+        }
+      }
+    });
+
+    tldColumn.addEventListener('mouseout', (e) => {
+      if (e.target.classList.contains('tld-row')) {
+        const rowIndex = e.target.dataset.rowIndex;
+        // Remove highlight from TLD row
+        e.target.classList.remove('row-hover');
+        // Remove highlight from cell row
+        const cellRow = cellGrid.querySelector(`.cell-row[data-row-index="${rowIndex}"]`);
+        if (cellRow) {
+          cellRow.classList.remove('row-hover');
+        }
+      }
+    });
+
+    // Hover over cell
+    cellGrid.addEventListener('mouseover', (e) => {
+      if (e.target.classList.contains('cell')) {
+        const rowIndex = e.target.dataset.rowIndex;
+        const colIndex = e.target.dataset.colIndex;
+
+        // Highlight the TLD row
+        const tldRow = tldColumn.querySelector(`.tld-row[data-row-index="${rowIndex}"]`);
+        if (tldRow) {
+          tldRow.classList.add('row-hover');
+        }
+
+        // Highlight the cell row
+        const cellRow = cellGrid.querySelector(`.cell-row[data-row-index="${rowIndex}"]`);
+        if (cellRow) {
+          cellRow.classList.add('row-hover');
+        }
+
+        // Highlight the weekday cell
+        const weekdayCell = weekdayRow.querySelector(`.weekday-cell[data-col-index="${colIndex}"]`);
+        if (weekdayCell) {
+          weekdayCell.classList.add('col-hover');
+        }
+
+        // Highlight the day cell
+        const dayCell = dayRow.querySelector(`.day-cell[data-col-index="${colIndex}"]`);
+        if (dayCell) {
+          dayCell.classList.add('col-hover');
+        }
+
+        // Highlight all cells in the column
+        const columnCells = cellGrid.querySelectorAll(`.cell[data-col-index="${colIndex}"]`);
+        columnCells.forEach(cell => cell.classList.add('col-hover'));
+      }
+    });
+
+    cellGrid.addEventListener('mouseout', (e) => {
+      if (e.target.classList.contains('cell')) {
+        const rowIndex = e.target.dataset.rowIndex;
+        const colIndex = e.target.dataset.colIndex;
+
+        // Remove highlight from TLD row
+        const tldRow = tldColumn.querySelector(`.tld-row[data-row-index="${rowIndex}"]`);
+        if (tldRow) {
+          tldRow.classList.remove('row-hover');
+        }
+
+        // Remove highlight from cell row
+        const cellRow = cellGrid.querySelector(`.cell-row[data-row-index="${rowIndex}"]`);
+        if (cellRow) {
+          cellRow.classList.remove('row-hover');
+        }
+
+        // Remove highlight from weekday cell
+        const weekdayCell = weekdayRow.querySelector(`.weekday-cell[data-col-index="${colIndex}"]`);
+        if (weekdayCell) {
+          weekdayCell.classList.remove('col-hover');
+        }
+
+        // Remove highlight from day cell
+        const dayCell = dayRow.querySelector(`.day-cell[data-col-index="${colIndex}"]`);
+        if (dayCell) {
+          dayCell.classList.remove('col-hover');
+        }
+
+        // Remove highlight from column cells
+        const columnCells = cellGrid.querySelectorAll(`.cell[data-col-index="${colIndex}"]`);
+        columnCells.forEach(cell => cell.classList.remove('col-hover'));
       }
     });
   }
