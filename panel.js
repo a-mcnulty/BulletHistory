@@ -41,6 +41,8 @@ class BulletHistory {
     this.setupScrollSync();
     this.setupTooltips();
     this.setupRowHover();
+    this.setupCellClick();
+    this.selectedCell = null;
   }
 
   // Generate date range from first to last history date
@@ -685,6 +687,214 @@ class BulletHistory {
         columnCells.forEach(cell => cell.classList.remove('col-hover'));
       }
     });
+  }
+
+  // Setup cell click to expand and show URLs
+  setupCellClick() {
+    const cellGrid = document.getElementById('cellGrid');
+    const expandedView = document.getElementById('expandedView');
+    const closeBtn = document.getElementById('closeExpanded');
+
+    // Click on cell to expand
+    cellGrid.addEventListener('click', (e) => {
+      if (e.target.classList.contains('cell') && !e.target.classList.contains('empty')) {
+        const domain = e.target.dataset.domain;
+        const date = e.target.dataset.date;
+        const count = parseInt(e.target.dataset.count);
+
+        // If clicking the same cell, close it
+        if (this.selectedCell === e.target) {
+          this.closeExpandedView();
+          return;
+        }
+
+        // Remove previous selection
+        if (this.selectedCell) {
+          this.selectedCell.classList.remove('selected');
+        }
+
+        // Mark as selected
+        e.target.classList.add('selected');
+        this.selectedCell = e.target;
+
+        // Show expanded view
+        this.showExpandedView(domain, date, count);
+      }
+    });
+
+    // Close button
+    closeBtn.addEventListener('click', () => {
+      this.closeExpandedView();
+    });
+  }
+
+  // Show expanded view with URLs
+  showExpandedView(domain, date, count) {
+    const expandedView = document.getElementById('expandedView');
+    const expandedTitle = document.getElementById('expandedTitle');
+    const urlList = document.getElementById('urlList');
+
+    // Format date nicely
+    const dateObj = new Date(date + 'T00:00:00');
+    const formattedDate = dateObj.toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric'
+    });
+
+    // Set title
+    expandedTitle.textContent = `${domain} - ${formattedDate} (${count} visit${count !== 1 ? 's' : ''})`;
+
+    // Get URLs for this cell
+    const dayData = this.historyData[domain].days[date];
+    if (!dayData || !dayData.urls) {
+      urlList.innerHTML = '<div style="padding: 16px; color: #999;">No URLs found</div>';
+      expandedView.style.display = 'block';
+      return;
+    }
+
+    // Sort URLs chronologically (most recent first)
+    const urls = [...dayData.urls].sort((a, b) => b.lastVisit - a.lastVisit);
+
+    // Render URL list
+    urlList.innerHTML = '';
+    urls.forEach(urlData => {
+      const urlItem = document.createElement('div');
+      urlItem.className = 'url-item';
+
+      // Left side: count + actions
+      const leftDiv = document.createElement('div');
+      leftDiv.className = 'url-item-left';
+
+      const countSpan = document.createElement('span');
+      countSpan.className = 'url-item-count';
+      countSpan.textContent = `${urlData.visitCount}×`;
+
+      const actionsDiv = document.createElement('div');
+      actionsDiv.className = 'url-item-actions';
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'icon-btn delete';
+      deleteBtn.textContent = 'delete';
+      deleteBtn.title = 'Delete from history';
+      deleteBtn.addEventListener('click', () => this.deleteUrl(urlData.url, domain, date));
+
+      const bookmarkBtn = document.createElement('button');
+      bookmarkBtn.className = 'icon-btn bookmark';
+      bookmarkBtn.textContent = 'save';
+      bookmarkBtn.title = 'Toggle bookmark';
+      bookmarkBtn.addEventListener('click', () => this.toggleBookmark(urlData.url, urlData.title, bookmarkBtn));
+
+      // Check if URL is already bookmarked
+      this.checkBookmarkStatus(urlData.url, bookmarkBtn);
+
+      actionsDiv.appendChild(deleteBtn);
+      actionsDiv.appendChild(bookmarkBtn);
+
+      leftDiv.appendChild(countSpan);
+      leftDiv.appendChild(actionsDiv);
+
+      // Right side: URL as clickable link
+      const rightDiv = document.createElement('div');
+      rightDiv.className = 'url-item-right';
+
+      const urlLink = document.createElement('a');
+      urlLink.href = urlData.url;
+      urlLink.textContent = urlData.url;
+      urlLink.target = '_blank';
+      urlLink.rel = 'noopener noreferrer';
+
+      rightDiv.appendChild(urlLink);
+
+      urlItem.appendChild(leftDiv);
+      urlItem.appendChild(rightDiv);
+      urlList.appendChild(urlItem);
+    });
+
+    // Show expanded view
+    expandedView.style.display = 'block';
+  }
+
+  // Close expanded view
+  closeExpandedView() {
+    const expandedView = document.getElementById('expandedView');
+    expandedView.style.display = 'none';
+
+    if (this.selectedCell) {
+      this.selectedCell.classList.remove('selected');
+      this.selectedCell = null;
+    }
+  }
+
+  // Delete URL from history
+  async deleteUrl(url, domain, date) {
+    // Delete from Chrome history
+    chrome.history.deleteUrl({ url: url }, () => {
+      console.log(`Deleted: ${url}`);
+
+      // Update local data
+      const dayData = this.historyData[domain].days[date];
+      if (dayData) {
+        // Remove URL from list
+        const urlIndex = dayData.urls.findIndex(u => u.url === url);
+        if (urlIndex !== -1) {
+          const deletedUrl = dayData.urls[urlIndex];
+          dayData.urls.splice(urlIndex, 1);
+          dayData.count -= deletedUrl.visitCount;
+
+          // If no more URLs for this day, remove the day and close view
+          if (dayData.urls.length === 0 || dayData.count <= 0) {
+            delete this.historyData[domain].days[date];
+            this.closeExpandedView();
+            this.updateVirtualGrid();
+          } else {
+            // Refresh expanded view with updated URLs
+            this.showExpandedView(domain, date, dayData.count);
+            this.updateVirtualGrid();
+          }
+
+          // If domain has no more days, remove domain
+          if (Object.keys(this.historyData[domain].days).length === 0) {
+            delete this.historyData[domain];
+            this.sortedDomains = this.getSortedDomains();
+          }
+        }
+      }
+    });
+  }
+
+  // Check if URL is bookmarked and update button state
+  checkBookmarkStatus(url, bookmarkBtn) {
+    chrome.bookmarks.search({ url: url }, (results) => {
+      if (results && results.length > 0) {
+        bookmarkBtn.classList.add('saved');
+        bookmarkBtn.dataset.bookmarkId = results[0].id;
+      }
+    });
+  }
+
+  // Toggle bookmark (add or remove)
+  toggleBookmark(url, title, bookmarkBtn) {
+    const bookmarkId = bookmarkBtn.dataset.bookmarkId;
+
+    if (bookmarkId) {
+      // Remove bookmark
+      chrome.bookmarks.remove(bookmarkId, () => {
+        console.log(`Removed bookmark: ${url}`);
+        bookmarkBtn.classList.remove('saved');
+        delete bookmarkBtn.dataset.bookmarkId;
+      });
+    } else {
+      // Add bookmark
+      chrome.bookmarks.create({
+        title: title || url,
+        url: url
+      }, (bookmark) => {
+        console.log(`Bookmarked: ${url}`);
+        bookmarkBtn.classList.add('saved');
+        bookmarkBtn.dataset.bookmarkId = bookmark.id;
+      });
+    }
   }
 }
 
