@@ -35,9 +35,36 @@ body {
   background: #fafafa;
   border-right: 1px solid #ddd;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   justify-content: center;
   padding: 8px;
+  gap: 6px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  color: #666;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 3px;
+  transition: border-color 0.15s ease;
+}
+
+.search-input::placeholder {
+  color: #999;
+}
+
+.search-input:hover {
+  border-color: #999;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #333;
 }
 
 .sort-dropdown {

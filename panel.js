@@ -37,6 +37,7 @@ class BulletHistory {
     this.expandedViewType = null; // 'cell' or 'domain'
     this.currentDomain = null; // Track current domain for domain view
     this.sortMode = 'recent'; // 'recent', 'frequency', or 'alphabetical'
+    this.searchFilter = ''; // Search filter text
     this.virtualGridInitialized = false; // Track if listeners are set up
 
     await this.loadColors();
@@ -51,6 +52,7 @@ class BulletHistory {
     this.setupCellClick();
     this.setupLiveUpdates();
     this.setupSortDropdown();
+    this.setupSearchInput();
   }
 
   // Generate date range from first to last history date
@@ -276,10 +278,17 @@ class BulletHistory {
     chrome.storage.local.set({ domainColors: this.colors });
   }
 
-  // Get sorted domains based on current sort mode
+  // Get sorted domains based on current sort mode and filter
   getSortedDomains() {
-    const domains = Object.keys(this.historyData);
+    let domains = Object.keys(this.historyData);
 
+    // Apply search filter
+    if (this.searchFilter) {
+      const filterLower = this.searchFilter.toLowerCase();
+      domains = domains.filter(domain => domain.toLowerCase().includes(filterLower));
+    }
+
+    // Apply sort
     switch (this.sortMode) {
       case 'recent':
         // Most recent visit first
@@ -1275,30 +1284,40 @@ class BulletHistory {
 
     sortDropdown.addEventListener('change', (e) => {
       this.sortMode = e.target.value;
-      console.log(`Sort mode changed to: ${this.sortMode}`);
-
-      // Re-sort domains
-      this.sortedDomains = this.getSortedDomains();
-      console.log(`Domains after sort (first 5):`, this.sortedDomains.slice(0, 5));
-
-      // Close any expanded view since row indices will change
-      this.closeExpandedView();
-
-      // Reset virtual state to force re-render
-      this.virtualState = {
-        startRow: -1,
-        endRow: -1,
-        startCol: -1,
-        endCol: -1,
-        viewportHeight: 0,
-        viewportWidth: 0
-      };
-
-      // Rebuild the entire virtual grid with new sort order
-      this.setupVirtualGrid();
-
-      console.log('Grid rebuilt');
+      this.refreshGrid();
     });
+  }
+
+  // Setup search input handler
+  setupSearchInput() {
+    const searchInput = document.getElementById('searchInput');
+
+    searchInput.addEventListener('input', (e) => {
+      this.searchFilter = e.target.value.trim();
+      this.refreshGrid();
+    });
+  }
+
+  // Refresh grid with current sort and filter
+  refreshGrid() {
+    // Re-sort/filter domains
+    this.sortedDomains = this.getSortedDomains();
+
+    // Close any expanded view since row indices will change
+    this.closeExpandedView();
+
+    // Reset virtual state to force re-render
+    this.virtualState = {
+      startRow: -1,
+      endRow: -1,
+      startCol: -1,
+      endCol: -1,
+      viewportHeight: 0,
+      viewportWidth: 0
+    };
+
+    // Rebuild the entire virtual grid
+    this.setupVirtualGrid();
   }
 
   // Setup live updates for new visits
