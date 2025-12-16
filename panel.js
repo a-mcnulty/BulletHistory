@@ -43,6 +43,8 @@ class BulletHistory {
     this.setupRowHover();
     this.setupCellClick();
     this.selectedCell = null;
+    this.expandedViewType = null; // 'cell' or 'domain'
+    this.currentDomain = null; // Track current domain for domain view
   }
 
   // Generate date range from first to last history date
@@ -590,6 +592,25 @@ class BulletHistory {
     const weekdayRow = document.getElementById('weekdayRow');
     const dayRow = document.getElementById('dayRow');
 
+    // Click on TLD row to show full domain view
+    tldColumn.addEventListener('click', (e) => {
+      if (e.target.classList.contains('tld-row')) {
+        const rowIndex = e.target.dataset.rowIndex;
+        const domain = this.sortedDomains[rowIndex];
+
+        if (domain) {
+          // Close any existing expanded view
+          if (this.selectedCell) {
+            this.selectedCell.classList.remove('selected');
+            this.selectedCell = null;
+          }
+
+          // Show domain view
+          this.showDomainView(domain);
+        }
+      }
+    });
+
     // Hover over TLD row
     tldColumn.addEventListener('mouseover', (e) => {
       if (e.target.classList.contains('tld-row')) {
@@ -781,11 +802,104 @@ class BulletHistory {
     }, { passive: false });
   }
 
+  // Show domain view with all URLs grouped by date
+  showDomainView(domain) {
+    const expandedView = document.getElementById('expandedView');
+    const expandedTitle = document.getElementById('expandedTitle');
+    const urlList = document.getElementById('urlList');
+    const expandedHeader = document.querySelector('.expanded-header');
+
+    // Set view type
+    this.expandedViewType = 'domain';
+    this.currentDomain = domain;
+
+    // Calculate total visits
+    const domainData = this.historyData[domain];
+    let totalVisits = 0;
+    Object.values(domainData.days).forEach(day => {
+      totalVisits += day.count;
+    });
+
+    // Set title (no navigation buttons for domain view)
+    expandedTitle.textContent = `${domain} (${totalVisits} total visit${totalVisits !== 1 ? 's' : ''})`;
+
+    // Remove navigation if it exists
+    const navContainer = document.getElementById('expandedNav');
+    if (navContainer) {
+      navContainer.remove();
+    }
+
+    // Add delete domain button if not exists
+    let deleteBtn = document.getElementById('deleteDomain');
+    if (!deleteBtn) {
+      deleteBtn = document.createElement('button');
+      deleteBtn.id = 'deleteDomain';
+      deleteBtn.className = 'delete-domain-btn';
+      deleteBtn.textContent = 'delete all';
+      deleteBtn.title = 'Delete all history for this domain';
+
+      // Insert before close button
+      const closeBtn = document.getElementById('closeExpanded');
+      expandedHeader.insertBefore(deleteBtn, closeBtn);
+    }
+
+    // Update delete button click handler
+    const newDeleteBtn = deleteBtn.cloneNode(true);
+    deleteBtn.parentNode.replaceChild(newDeleteBtn, deleteBtn);
+    newDeleteBtn.addEventListener('click', () => this.deleteDomain(domain));
+
+    // Get all dates sorted (most recent first)
+    const dates = Object.keys(domainData.days).sort().reverse();
+
+    // Render URL list grouped by date
+    urlList.innerHTML = '';
+
+    dates.forEach(dateStr => {
+      const dayData = domainData.days[dateStr];
+
+      // Date header
+      const dateObj = new Date(dateStr + 'T00:00:00');
+      const formattedDate = dateObj.toLocaleDateString('en-US', {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric'
+      });
+
+      const dateHeader = document.createElement('div');
+      dateHeader.className = 'date-group-header';
+      dateHeader.textContent = `${formattedDate} (${dayData.count} visit${dayData.count !== 1 ? 's' : ''})`;
+      urlList.appendChild(dateHeader);
+
+      // Sort URLs chronologically (most recent first)
+      const urls = [...dayData.urls].sort((a, b) => b.lastVisit - a.lastVisit);
+
+      // Render each URL
+      urls.forEach(urlData => {
+        const urlItem = this.createUrlItem(urlData, domain, dateStr);
+        urlList.appendChild(urlItem);
+      });
+    });
+
+    // Set height to 50vh
+    expandedView.style.maxHeight = '50vh';
+    expandedView.style.display = 'block';
+  }
+
   // Show expanded view with URLs
   showExpandedView(domain, date, count) {
     const expandedView = document.getElementById('expandedView');
     const expandedTitle = document.getElementById('expandedTitle');
     const urlList = document.getElementById('urlList');
+
+    // Set view type
+    this.expandedViewType = 'cell';
+    this.currentDomain = null;
+
+    // Remove delete domain button if it exists
+    const deleteBtn = document.getElementById('deleteDomain');
+    if (deleteBtn) {
+      deleteBtn.remove();
+    }
 
     // Format date nicely
     const dateObj = new Date(date + 'T00:00:00');
@@ -865,60 +979,68 @@ class BulletHistory {
     // Render URL list
     urlList.innerHTML = '';
     urls.forEach(urlData => {
-      const urlItem = document.createElement('div');
-      urlItem.className = 'url-item';
-
-      // Left side: count + actions
-      const leftDiv = document.createElement('div');
-      leftDiv.className = 'url-item-left';
-
-      const countSpan = document.createElement('span');
-      countSpan.className = 'url-item-count';
-      countSpan.textContent = `${urlData.visitCount}×`;
-
-      const actionsDiv = document.createElement('div');
-      actionsDiv.className = 'url-item-actions';
-
-      const deleteBtn = document.createElement('button');
-      deleteBtn.className = 'icon-btn delete';
-      deleteBtn.textContent = 'delete';
-      deleteBtn.title = 'Delete from history';
-      deleteBtn.addEventListener('click', () => this.deleteUrl(urlData.url, domain, date));
-
-      const bookmarkBtn = document.createElement('button');
-      bookmarkBtn.className = 'icon-btn bookmark';
-      bookmarkBtn.textContent = 'save';
-      bookmarkBtn.title = 'Toggle bookmark';
-      bookmarkBtn.addEventListener('click', () => this.toggleBookmark(urlData.url, urlData.title, bookmarkBtn));
-
-      // Check if URL is already bookmarked
-      this.checkBookmarkStatus(urlData.url, bookmarkBtn);
-
-      actionsDiv.appendChild(deleteBtn);
-      actionsDiv.appendChild(bookmarkBtn);
-
-      leftDiv.appendChild(countSpan);
-      leftDiv.appendChild(actionsDiv);
-
-      // Right side: URL as clickable link
-      const rightDiv = document.createElement('div');
-      rightDiv.className = 'url-item-right';
-
-      const urlLink = document.createElement('a');
-      urlLink.href = urlData.url;
-      urlLink.textContent = urlData.url;
-      urlLink.target = '_blank';
-      urlLink.rel = 'noopener noreferrer';
-
-      rightDiv.appendChild(urlLink);
-
-      urlItem.appendChild(leftDiv);
-      urlItem.appendChild(rightDiv);
+      const urlItem = this.createUrlItem(urlData, domain, date);
       urlList.appendChild(urlItem);
     });
 
-    // Show expanded view
+    // Reset height to 300px for cell view
+    expandedView.style.maxHeight = '300px';
     expandedView.style.display = 'block';
+  }
+
+  // Create a URL item element
+  createUrlItem(urlData, domain, date) {
+    const urlItem = document.createElement('div');
+    urlItem.className = 'url-item';
+
+    // Left side: count + actions
+    const leftDiv = document.createElement('div');
+    leftDiv.className = 'url-item-left';
+
+    const countSpan = document.createElement('span');
+    countSpan.className = 'url-item-count';
+    countSpan.textContent = `${urlData.visitCount}×`;
+
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'url-item-actions';
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'icon-btn delete';
+    deleteBtn.textContent = 'delete';
+    deleteBtn.title = 'Delete from history';
+    deleteBtn.addEventListener('click', () => this.deleteUrl(urlData.url, domain, date));
+
+    const bookmarkBtn = document.createElement('button');
+    bookmarkBtn.className = 'icon-btn bookmark';
+    bookmarkBtn.textContent = 'save';
+    bookmarkBtn.title = 'Toggle bookmark';
+    bookmarkBtn.addEventListener('click', () => this.toggleBookmark(urlData.url, urlData.title, bookmarkBtn));
+
+    // Check if URL is already bookmarked
+    this.checkBookmarkStatus(urlData.url, bookmarkBtn);
+
+    actionsDiv.appendChild(deleteBtn);
+    actionsDiv.appendChild(bookmarkBtn);
+
+    leftDiv.appendChild(countSpan);
+    leftDiv.appendChild(actionsDiv);
+
+    // Right side: URL as clickable link
+    const rightDiv = document.createElement('div');
+    rightDiv.className = 'url-item-right';
+
+    const urlLink = document.createElement('a');
+    urlLink.href = urlData.url;
+    urlLink.textContent = urlData.url;
+    urlLink.target = '_blank';
+    urlLink.rel = 'noopener noreferrer';
+
+    rightDiv.appendChild(urlLink);
+
+    urlItem.appendChild(leftDiv);
+    urlItem.appendChild(rightDiv);
+
+    return urlItem;
   }
 
   // Close expanded view
@@ -930,6 +1052,9 @@ class BulletHistory {
       this.selectedCell.classList.remove('selected');
       this.selectedCell = null;
     }
+
+    this.expandedViewType = null;
+    this.currentDomain = null;
   }
 
   // Navigate to previous or next day for the same domain
@@ -1005,24 +1130,72 @@ class BulletHistory {
           dayData.urls.splice(urlIndex, 1);
           dayData.count -= deletedUrl.visitCount;
 
-          // If no more URLs for this day, remove the day and close view
+          // If no more URLs for this day, remove the day
           if (dayData.urls.length === 0 || dayData.count <= 0) {
             delete this.historyData[domain].days[date];
-            this.closeExpandedView();
-            this.updateVirtualGrid();
-          } else {
-            // Refresh expanded view with updated URLs
-            this.showExpandedView(domain, date, dayData.count);
-            this.updateVirtualGrid();
           }
 
-          // If domain has no more days, remove domain
+          // If domain has no more days, remove domain and close view
           if (Object.keys(this.historyData[domain].days).length === 0) {
             delete this.historyData[domain];
             this.sortedDomains = this.getSortedDomains();
+            this.closeExpandedView();
+            this.updateVirtualGrid();
+          } else {
+            // Refresh the appropriate view
+            if (this.expandedViewType === 'domain') {
+              this.showDomainView(domain);
+              this.updateVirtualGrid();
+            } else if (this.expandedViewType === 'cell') {
+              // If current day still has URLs, refresh cell view
+              if (this.historyData[domain].days[date]) {
+                this.showExpandedView(domain, date, this.historyData[domain].days[date].count);
+                this.updateVirtualGrid();
+              } else {
+                // Day is empty, close the view
+                this.closeExpandedView();
+                this.updateVirtualGrid();
+              }
+            }
           }
         }
       }
+    });
+  }
+
+  // Delete all history for a domain
+  async deleteDomain(domain) {
+    if (!confirm(`Delete all history for ${domain}? This will remove all ${Object.keys(this.historyData[domain].days).length} days of history for this domain.`)) {
+      return;
+    }
+
+    // Get all URLs for this domain
+    const allUrls = [];
+    Object.values(this.historyData[domain].days).forEach(dayData => {
+      dayData.urls.forEach(urlData => {
+        allUrls.push(urlData.url);
+      });
+    });
+
+    // Delete each URL from Chrome history
+    let deletedCount = 0;
+    allUrls.forEach(url => {
+      chrome.history.deleteUrl({ url: url }, () => {
+        deletedCount++;
+
+        // When all URLs are deleted, update UI
+        if (deletedCount === allUrls.length) {
+          console.log(`Deleted all ${deletedCount} URLs for ${domain}`);
+
+          // Remove domain from local data
+          delete this.historyData[domain];
+          this.sortedDomains = this.getSortedDomains();
+
+          // Close view and refresh grid
+          this.closeExpandedView();
+          this.updateVirtualGrid();
+        }
+      });
     });
   }
 
