@@ -111,9 +111,7 @@ body {
   border-right: 1px solid #ddd;
   background: #fff;
   scrollbar-width: none;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+  position: relative;
   padding-top: 8px;
   padding-bottom: 3px;
 }
@@ -126,12 +124,14 @@ body {
   display: flex;
   align-items: center;
   height: 18px;
+  min-height: 18px;
   padding: 0 8px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   color: #333;
   font-size: 12px;
+  flex-shrink: 0;
 }
 
 .tld-row:hover,
@@ -151,21 +151,24 @@ body {
 }
 
 .cell-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+  position: relative;
   min-width: fit-content;
   padding-top: 8px;
   padding-bottom: 3px;
-  padding-left: 8px;
-  padding-right: 8px;
 }
 
 .cell-row {
-  display: flex;
-  gap: 3px;
+  display: block;
   height: 18px;
-  align-items: center;
+  width: 100%;
+  min-height: 18px;
+}
+
+.virtual-spacer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
 }
 
 .cell {

@@ -4,8 +4,29 @@ class BulletHistory {
   constructor() {
     this.historyData = {}; // { domain: { lastVisit, days: { date: { count, urls } } } }
     this.colors = {}; // { domain: color }
-    this.dateRange = 30; // Show 30 days by default (to capture more history)
     this.dates = [];
+    this.sortedDomains = []; // Cached sorted domain list
+
+    // Virtualization settings
+    this.rowHeight = 21; // 18px cell + 3px gap
+    this.colWidth = 21; // 18px cell + 3px gap
+    this.rowBuffer = 10; // Extra rows to render above/below viewport
+    this.colBuffer = 5; // Extra columns to render left/right of viewport
+
+    // Virtualization state
+    this.virtualState = {
+      startRow: 0,
+      endRow: 0,
+      startCol: 0,
+      endCol: 0,
+      viewportHeight: 0,
+      viewportWidth: 0
+    };
+
+    // DEBUG MODE: Set to true to generate fake history for testing
+    this.useFakeData = true;
+    this.fakeDomainCount = 100; // Number of domains to generate
+    this.fakeDaysBack = 365; // Days of history to generate
 
     this.init();
   }
@@ -14,51 +35,144 @@ class BulletHistory {
     await this.loadColors();
     await this.fetchHistory();
     this.generateDates();
+    this.sortedDomains = this.getSortedDomains();
     this.renderDateHeader();
-    this.renderGrid();
+    this.setupVirtualGrid();
     this.setupScrollSync();
     this.setupTooltips();
     this.setupRowHover();
   }
 
-  // Generate date range (today - N days ago)
+  // Generate date range from first to last history date
   generateDates() {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Find the earliest visit date from history data
+    let earliestDate = new Date();
 
+    for (const domain in this.historyData) {
+      for (const dateStr in this.historyData[domain].days) {
+        const date = new Date(dateStr);
+        if (date < earliestDate) earliestDate = date;
+      }
+    }
+
+    // Always show through today
+    const latestDate = new Date();
+    latestDate.setHours(0, 0, 0, 0);
+
+    // If no history, show last 30 days
+    if (!Object.keys(this.historyData).length) {
+      earliestDate = new Date();
+      earliestDate.setDate(earliestDate.getDate() - 30);
+    }
+
+    // Generate all dates between earliest and today
     this.dates = [];
-    for (let i = this.dateRange - 1; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      this.dates.push(this.formatDate(date));
+    const current = new Date(earliestDate);
+    current.setHours(0, 0, 0, 0);
+
+    while (current <= latestDate) {
+      this.dates.push(this.formatDate(current));
+      current.setDate(current.getDate() + 1);
     }
 
     console.log('Generated dates:', this.dates);
-    console.log('Today is:', this.formatDate(new Date()));
+    console.log(`Showing ${this.dates.length} days of history`);
   }
 
   formatDate(date) {
     const year = date.getFullYear();
-    const month = String(date.getMonth() + 1);
+    const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   }
 
-  // Fetch Chrome history
+  // Fetch Chrome history (all available) or generate fake data
   async fetchHistory() {
-    return new Promise((resolve) => {
-      const endTime = Date.now();
-      const startTime = endTime - (this.dateRange * 24 * 60 * 60 * 1000);
+    if (this.useFakeData) {
+      this.generateFakeHistory();
+      return Promise.resolve();
+    }
 
+    return new Promise((resolve) => {
       chrome.history.search({
         text: '',
-        startTime: startTime,
-        maxResults: 10000
+        startTime: 0, // Get all history
+        maxResults: 0  // No limit
       }, (results) => {
         this.parseHistory(results);
         resolve();
       });
     });
+  }
+
+  // Generate fake history data for testing
+  generateFakeHistory() {
+    this.historyData = {};
+
+    const fakeDomains = [
+      'google.com', 'github.com', 'stackoverflow.com', 'reddit.com', 'twitter.com',
+      'youtube.com', 'facebook.com', 'amazon.com', 'netflix.com', 'linkedin.com',
+      'wikipedia.org', 'medium.com', 'dev.to', 'hackernews.com', 'producthunt.com',
+      'dribbble.com', 'behance.net', 'figma.com', 'notion.so', 'slack.com',
+      'discord.com', 'twitch.tv', 'spotify.com', 'soundcloud.com', 'pinterest.com',
+      'instagram.com', 'tiktok.com', 'snapchat.com', 'tumblr.com', 'vimeo.com',
+      'dropbox.com', 'drive.google.com', 'docs.google.com', 'sheets.google.com',
+      'mail.google.com', 'outlook.com', 'zoom.us', 'meet.google.com', 'teams.microsoft.com',
+      'trello.com', 'asana.com', 'jira.atlassian.com', 'confluence.atlassian.com',
+      'gitlab.com', 'bitbucket.org', 'docker.com', 'kubernetes.io', 'aws.amazon.com',
+      'azure.microsoft.com', 'cloud.google.com', 'heroku.com', 'vercel.com', 'netlify.com'
+    ];
+
+    // Generate additional random domains to reach fakeDomainCount
+    while (fakeDomains.length < this.fakeDomainCount) {
+      const randomName = Math.random().toString(36).substring(7);
+      fakeDomains.push(`${randomName}.com`);
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // For each domain, generate random visit data
+    fakeDomains.forEach(domain => {
+      const lastVisit = Date.now() - Math.random() * (this.fakeDaysBack * 24 * 60 * 60 * 1000);
+
+      this.historyData[domain] = {
+        lastVisit: lastVisit,
+        days: {}
+      };
+
+      // Generate visits for random days
+      const numDaysWithVisits = Math.floor(Math.random() * this.fakeDaysBack * 0.3); // Visit 30% of days on average
+
+      for (let i = 0; i < numDaysWithVisits; i++) {
+        const daysAgo = Math.floor(Math.random() * this.fakeDaysBack);
+        const date = new Date(today);
+        date.setDate(date.getDate() - daysAgo);
+        const dateStr = this.formatDate(date);
+
+        if (!this.historyData[domain].days[dateStr]) {
+          const visitCount = Math.floor(Math.random() * 50) + 1; // 1-50 visits per day
+          this.historyData[domain].days[dateStr] = {
+            count: visitCount,
+            urls: Array(Math.min(visitCount, 10)).fill(null).map((_, idx) => ({
+              url: `https://${domain}/page${idx}`,
+              title: `Page ${idx} - ${domain}`,
+              lastVisit: date.getTime(),
+              visitCount: 1
+            }))
+          };
+        }
+      }
+    });
+
+    // Generate colors for all domains
+    for (const domain in this.historyData) {
+      if (!this.colors[domain]) {
+        this.colors[domain] = this.generatePastelColor();
+      }
+    }
+
+    console.log(`Generated fake history: ${fakeDomains.length} domains, ${this.fakeDaysBack} days`);
   }
 
   // Parse history into domain/day structure
@@ -174,6 +288,13 @@ class BulletHistory {
 
     this.dates.forEach((dateStr, index) => {
       const date = new Date(dateStr + 'T00:00:00'); // Add time to avoid timezone issues
+
+      // Check for invalid date
+      if (isNaN(date.getTime())) {
+        console.error(`Invalid date: ${dateStr}`);
+        return;
+      }
+
       const monthName = date.toLocaleString('en-US', { month: 'long' });
       const year = date.getFullYear();
       const monthYearKey = `${monthName} ${year}`;
@@ -237,44 +358,141 @@ class BulletHistory {
     return minSaturation + (normalized * (maxSaturation - minSaturation));
   }
 
-  // Render the grid
-  renderGrid() {
+  // Setup virtual grid with spacers
+  setupVirtualGrid() {
+    const tldColumn = document.getElementById('tldColumn');
+    const cellGridWrapper = document.getElementById('cellGridWrapper');
+    const cellGrid = document.getElementById('cellGrid');
+
+    // Calculate total dimensions
+    const totalHeight = this.sortedDomains.length * this.rowHeight + 11; // Add top (8px) + bottom (3px) padding
+    const totalWidth = this.dates.length * this.colWidth;
+
+    // Create spacer to maintain scroll area
+    tldColumn.innerHTML = '<div class="virtual-spacer"></div>';
+    cellGrid.innerHTML = '<div class="virtual-spacer"></div>';
+
+    const tldSpacer = tldColumn.querySelector('.virtual-spacer');
+    const cellSpacer = cellGrid.querySelector('.virtual-spacer');
+
+    tldSpacer.style.height = `${totalHeight}px`;
+    tldSpacer.style.width = '1px';
+    cellSpacer.style.height = `${totalHeight}px`;
+    cellSpacer.style.width = `${totalWidth + 16}px`; // Add padding
+
+    // Initial render
+    this.updateVirtualGrid();
+
+    // Re-render on scroll
+    cellGridWrapper.addEventListener('scroll', () => {
+      this.updateVirtualGrid();
+    });
+
+    // Re-render on resize
+    window.addEventListener('resize', () => {
+      this.updateVirtualGrid();
+    });
+  }
+
+  // Update which rows/columns are visible and render them
+  updateVirtualGrid() {
+    const tldColumn = document.getElementById('tldColumn');
+    const cellGridWrapper = document.getElementById('cellGridWrapper');
+    const cellGrid = document.getElementById('cellGrid');
+
+    // Get viewport dimensions
+    const viewportHeight = cellGridWrapper.clientHeight;
+    const viewportWidth = cellGridWrapper.clientWidth;
+    const scrollTop = cellGridWrapper.scrollTop;
+    const scrollLeft = cellGridWrapper.scrollLeft;
+
+    // Calculate visible range with buffer
+    const startRow = Math.max(0, Math.floor(scrollTop / this.rowHeight) - this.rowBuffer);
+    const endRow = Math.min(
+      this.sortedDomains.length,
+      Math.ceil((scrollTop + viewportHeight) / this.rowHeight) + this.rowBuffer
+    );
+
+    const startCol = Math.max(0, Math.floor(scrollLeft / this.colWidth) - this.colBuffer);
+    const endCol = Math.min(
+      this.dates.length,
+      Math.ceil((scrollLeft + viewportWidth) / this.colWidth) + this.colBuffer
+    );
+
+    // Only update if range changed
+    if (
+      startRow === this.virtualState.startRow &&
+      endRow === this.virtualState.endRow &&
+      startCol === this.virtualState.startCol &&
+      endCol === this.virtualState.endCol
+    ) {
+      return;
+    }
+
+    this.virtualState = { startRow, endRow, startCol, endCol, viewportHeight, viewportWidth };
+
+    // Render visible rows
+    this.renderVirtualRows(startRow, endRow, startCol, endCol);
+  }
+
+  // Render only visible rows
+  renderVirtualRows(startRow, endRow, startCol, endCol) {
     const tldColumn = document.getElementById('tldColumn');
     const cellGrid = document.getElementById('cellGrid');
 
+    // Clear existing rows (keep spacer)
+    const tldSpacer = tldColumn.querySelector('.virtual-spacer');
+    const cellSpacer = cellGrid.querySelector('.virtual-spacer');
     tldColumn.innerHTML = '';
     cellGrid.innerHTML = '';
-
-    const domains = this.getSortedDomains();
+    tldColumn.appendChild(tldSpacer);
+    cellGrid.appendChild(cellSpacer);
 
     // Find max visit count for saturation calculation
     let maxCount = 0;
-    domains.forEach(domain => {
+    this.sortedDomains.forEach(domain => {
       Object.values(this.historyData[domain].days).forEach(day => {
         maxCount = Math.max(maxCount, day.count);
       });
     });
 
-    domains.forEach((domain, index) => {
+    // Render visible rows
+    for (let rowIndex = startRow; rowIndex < endRow; rowIndex++) {
+      const domain = this.sortedDomains[rowIndex];
+      if (!domain) continue;
+
       // TLD label
       const tldRow = document.createElement('div');
       tldRow.className = 'tld-row';
       tldRow.textContent = domain;
-      tldRow.dataset.rowIndex = index;
+      tldRow.dataset.rowIndex = rowIndex;
+      tldRow.style.position = 'absolute';
+      tldRow.style.top = `${rowIndex * this.rowHeight + 8}px`; // Add 8px padding
+      tldRow.style.width = '150px';
       tldColumn.appendChild(tldRow);
 
       // Cell row
       const cellRow = document.createElement('div');
       cellRow.className = 'cell-row';
-      cellRow.dataset.rowIndex = index;
+      cellRow.dataset.rowIndex = rowIndex;
+      cellRow.style.position = 'absolute';
+      cellRow.style.top = `${rowIndex * this.rowHeight + 8}px`; // Add 8px padding
+      cellRow.style.left = '0';
+      cellRow.style.width = `${this.dates.length * this.colWidth + 16}px`; // Full width of all dates + padding
 
-      this.dates.forEach((dateStr, colIndex) => {
+      // Render visible columns
+      for (let colIndex = startCol; colIndex < endCol; colIndex++) {
+        const dateStr = this.dates[colIndex];
+        if (!dateStr) continue;
+
         const cell = document.createElement('div');
         cell.className = 'cell';
         cell.dataset.domain = domain;
         cell.dataset.date = dateStr;
         cell.dataset.colIndex = colIndex;
-        cell.dataset.rowIndex = index;
+        cell.dataset.rowIndex = rowIndex;
+        cell.style.position = 'absolute';
+        cell.style.left = `${colIndex * this.colWidth + 8}px`; // Add left padding
 
         const dayData = this.historyData[domain].days[dateStr];
 
@@ -298,10 +516,10 @@ class BulletHistory {
         }
 
         cellRow.appendChild(cell);
-      });
+      }
 
       cellGrid.appendChild(cellRow);
-    });
+    }
   }
 
   // Sync scrolling between date header and cell grid
@@ -310,14 +528,21 @@ class BulletHistory {
     const cellGridWrapper = document.getElementById('cellGridWrapper');
     const tldColumn = document.getElementById('tldColumn');
 
-    // Sync horizontal scroll
+    // Sync horizontal scroll: grid -> header
+    // Sync vertical scroll: grid -> tld column
     cellGridWrapper.addEventListener('scroll', () => {
       dateHeader.scrollLeft = cellGridWrapper.scrollLeft;
+      tldColumn.scrollTop = cellGridWrapper.scrollTop;
     });
 
-    // Sync vertical scroll
-    cellGridWrapper.addEventListener('scroll', () => {
-      tldColumn.scrollTop = cellGridWrapper.scrollTop;
+    // Sync horizontal scroll: header -> grid
+    dateHeader.addEventListener('scroll', () => {
+      cellGridWrapper.scrollLeft = dateHeader.scrollLeft;
+    });
+
+    // Sync vertical scroll: tld column -> grid
+    tldColumn.addEventListener('scroll', () => {
+      cellGridWrapper.scrollTop = tldColumn.scrollTop;
     });
 
     // Scroll to show today (right edge)
