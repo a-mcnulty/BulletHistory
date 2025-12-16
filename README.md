@@ -7,7 +7,7 @@ A visual bullet journal for your browsing history.
 1. Open Chrome and navigate to `chrome://extensions/`
 2. Enable "Developer mode" (toggle in top right)
 3. Click "Load unpacked"
-4. Select the `/Users/ammc/BulletHistory` folder
+4. Select the `BulletHistory` folder
 5. The extension will appear in your extensions list
 
 ## Usage
