@@ -32,6 +32,13 @@ class BulletHistory {
   }
 
   async init() {
+    // Initialize state before loading data
+    this.selectedCell = null;
+    this.expandedViewType = null; // 'cell' or 'domain'
+    this.currentDomain = null; // Track current domain for domain view
+    this.sortMode = 'recent'; // 'recent', 'frequency', or 'alphabetical'
+    this.virtualGridInitialized = false; // Track if listeners are set up
+
     await this.loadColors();
     await this.fetchHistory();
     this.generateDates();
@@ -43,9 +50,7 @@ class BulletHistory {
     this.setupRowHover();
     this.setupCellClick();
     this.setupLiveUpdates();
-    this.selectedCell = null;
-    this.expandedViewType = null; // 'cell' or 'domain'
-    this.currentDomain = null; // Track current domain for domain view
+    this.setupSortDropdown();
   }
 
   // Generate date range from first to last history date
@@ -271,11 +276,32 @@ class BulletHistory {
     chrome.storage.local.set({ domainColors: this.colors });
   }
 
-  // Get sorted domains (most recent first)
+  // Get sorted domains based on current sort mode
   getSortedDomains() {
-    return Object.keys(this.historyData).sort((a, b) => {
-      return this.historyData[b].lastVisit - this.historyData[a].lastVisit;
-    });
+    const domains = Object.keys(this.historyData);
+
+    switch (this.sortMode) {
+      case 'recent':
+        // Most recent visit first
+        return domains.sort((a, b) => {
+          return this.historyData[b].lastVisit - this.historyData[a].lastVisit;
+        });
+
+      case 'popular':
+        // Most days with visits first
+        return domains.sort((a, b) => {
+          const aDays = Object.keys(this.historyData[a].days).length;
+          const bDays = Object.keys(this.historyData[b].days).length;
+          return bDays - aDays;
+        });
+
+      case 'alphabetical':
+        // A to Z
+        return domains.sort((a, b) => a.localeCompare(b));
+
+      default:
+        return domains;
+    }
   }
 
   // Render date header
@@ -389,15 +415,20 @@ class BulletHistory {
     // Initial render
     this.updateVirtualGrid();
 
-    // Re-render on scroll
-    cellGridWrapper.addEventListener('scroll', () => {
-      this.updateVirtualGrid();
-    });
+    // Only add listeners on first setup
+    if (!this.virtualGridInitialized) {
+      // Re-render on scroll
+      cellGridWrapper.addEventListener('scroll', () => {
+        this.updateVirtualGrid();
+      });
 
-    // Re-render on resize
-    window.addEventListener('resize', () => {
-      this.updateVirtualGrid();
-    });
+      // Re-render on resize
+      window.addEventListener('resize', () => {
+        this.updateVirtualGrid();
+      });
+
+      this.virtualGridInitialized = true;
+    }
   }
 
   // Update which rows/columns are visible and render them
@@ -425,6 +456,8 @@ class BulletHistory {
       Math.ceil((scrollLeft + viewportWidth) / this.colWidth) + this.colBuffer
     );
 
+    console.log(`updateVirtualGrid: rows ${startRow}-${endRow}, cols ${startCol}-${endCol}`);
+
     // Only update if range changed
     if (
       startRow === this.virtualState.startRow &&
@@ -432,6 +465,7 @@ class BulletHistory {
       startCol === this.virtualState.startCol &&
       endCol === this.virtualState.endCol
     ) {
+      console.log('Range unchanged, skipping render');
       return;
     }
 
@@ -439,6 +473,7 @@ class BulletHistory {
 
     // Render visible rows
     this.renderVirtualRows(startRow, endRow, startCol, endCol);
+    console.log(`Rendered rows ${startRow}-${endRow}`);
   }
 
   // Render only visible rows
@@ -1232,6 +1267,38 @@ class BulletHistory {
         bookmarkBtn.dataset.bookmarkId = bookmark.id;
       });
     }
+  }
+
+  // Setup sort dropdown handler
+  setupSortDropdown() {
+    const sortDropdown = document.getElementById('sortMode');
+
+    sortDropdown.addEventListener('change', (e) => {
+      this.sortMode = e.target.value;
+      console.log(`Sort mode changed to: ${this.sortMode}`);
+
+      // Re-sort domains
+      this.sortedDomains = this.getSortedDomains();
+      console.log(`Domains after sort (first 5):`, this.sortedDomains.slice(0, 5));
+
+      // Close any expanded view since row indices will change
+      this.closeExpandedView();
+
+      // Reset virtual state to force re-render
+      this.virtualState = {
+        startRow: -1,
+        endRow: -1,
+        startCol: -1,
+        endCol: -1,
+        viewportHeight: 0,
+        viewportWidth: 0
+      };
+
+      // Rebuild the entire virtual grid with new sort order
+      this.setupVirtualGrid();
+
+      console.log('Grid rebuilt');
+    });
   }
 
   // Setup live updates for new visits

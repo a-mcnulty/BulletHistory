@@ -26,7 +26,7 @@ A visual bullet journal for your browsing history.
 
 - ✅ Dynamic date range based on full browser history
 - ✅ Visual grid with rounded cells and spacing
-- ✅ Domains sorted by most recently visited
+- ✅ Multiple sort options for domains (Most Recent, Frequency, Alphabetical)
 - ✅ Unique pastel colors per domain (persisted)
 - ✅ Color saturation based on visit frequency
 - ✅ Dual-axis scrolling (horizontal for dates, vertical for domains)

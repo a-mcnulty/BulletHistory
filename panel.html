@@ -10,7 +10,13 @@
   <div class="container">
     <!-- Date Header (fixed at top, scrolls horizontally) -->
     <div class="header-section">
-      <div class="header-spacer"></div>
+      <div class="header-spacer">
+        <select id="sortMode" class="sort-dropdown">
+          <option value="recent">Most Recent</option>
+          <option value="popular">Most Popular</option>
+          <option value="alphabetical">Alphabetical</option>
+        </select>
+      </div>
       <div class="date-header" id="dateHeader">
         <div class="date-header-inner">
           <div class="month-row" id="monthRow"></div>
