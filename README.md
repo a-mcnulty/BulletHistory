@@ -35,6 +35,12 @@ A visual bullet journal for your browsing history.
 - ✅ Row and column highlighting on hover
 - ✅ Bidirectional scroll sync between header and grid
 - ✅ Virtualization for efficient rendering of large datasets
+- ✅ Click cells to expand and see individual URLs
+- ✅ Delete individual URLs or bookmark them
+- ✅ Navigate between dates with arrow keys or horizontal scrolling
+- ✅ Click domains to see all URLs grouped by date
+- ✅ Delete all history for a domain
+- ✅ Live updates as you browse
 
 ## Debug Mode (Fake Data for Testing)
 
@@ -54,13 +60,12 @@ If you want to test with a large dataset, you can enable fake data generation:
 
 **Note:** Debug mode generates synthetic browsing data and ignores your real Chrome history. This is useful for testing performance with large datasets.
 
-## Next Steps (Phase 2)
+## Next Steps
 
-- Click cells to expand and see individual URLs
-- Delete individual URLs or add to bookmarks
-- Trash icon to delete all domain data
-- Statistics dashboard
-- Live updates as you browse
+- Statistics dashboard (total visits, most visited sites, activity trends)
+- Additional filtering and search capabilities
+- Export history data
+- Custom color schemes
 
 ## Files
 

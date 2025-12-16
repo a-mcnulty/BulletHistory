@@ -42,6 +42,7 @@ class BulletHistory {
     this.setupTooltips();
     this.setupRowHover();
     this.setupCellClick();
+    this.setupLiveUpdates();
     this.selectedCell = null;
     this.expandedViewType = null; // 'cell' or 'domain'
     this.currentDomain = null; // Track current domain for domain view
@@ -1230,6 +1231,125 @@ class BulletHistory {
         bookmarkBtn.classList.add('saved');
         bookmarkBtn.dataset.bookmarkId = bookmark.id;
       });
+    }
+  }
+
+  // Setup live updates for new visits
+  setupLiveUpdates() {
+    // Don't set up live updates for fake data
+    if (this.useFakeData) {
+      console.log('Live updates disabled (fake data mode)');
+      return;
+    }
+
+    console.log('Setting up live updates...');
+
+    // Listen for new history visits
+    chrome.history.onVisited.addListener((historyItem) => {
+      console.log('New visit detected:', historyItem.url);
+      this.handleNewVisit(historyItem);
+    });
+
+    console.log('Live updates listener registered');
+  }
+
+  // Handle a new visit from chrome.history.onVisited
+  handleNewVisit(historyItem) {
+    try {
+      const url = new URL(historyItem.url);
+      const domain = url.hostname.replace('www.', '');
+
+      // Create date from timestamp
+      const visitDateObj = new Date(historyItem.lastVisitTime);
+      visitDateObj.setHours(0, 0, 0, 0);
+      const visitDate = this.formatDate(visitDateObj);
+
+      // Initialize domain if new
+      if (!this.historyData[domain]) {
+        this.historyData[domain] = {
+          lastVisit: historyItem.lastVisitTime,
+          days: {}
+        };
+
+        // Generate color for new domain
+        if (!this.colors[domain]) {
+          this.colors[domain] = this.generatePastelColor();
+          this.saveColors();
+        }
+
+        // Update sorted domains
+        this.sortedDomains = this.getSortedDomains();
+      }
+
+      // Initialize day if new
+      if (!this.historyData[domain].days[visitDate]) {
+        this.historyData[domain].days[visitDate] = {
+          count: 0,
+          urls: []
+        };
+      }
+
+      // Update last visit if more recent
+      if (historyItem.lastVisitTime > this.historyData[domain].lastVisit) {
+        this.historyData[domain].lastVisit = historyItem.lastVisitTime;
+      }
+
+      // Find or add URL
+      const urlData = this.historyData[domain].days[visitDate].urls.find(u => u.url === historyItem.url);
+
+      if (urlData) {
+        // URL exists, increment count
+        urlData.visitCount++;
+        urlData.lastVisit = historyItem.lastVisitTime;
+      } else {
+        // New URL
+        this.historyData[domain].days[visitDate].urls.push({
+          url: historyItem.url,
+          title: historyItem.title,
+          lastVisit: historyItem.lastVisitTime,
+          visitCount: 1
+        });
+      }
+
+      // Update day count
+      this.historyData[domain].days[visitDate].count++;
+
+      // Check if date is new and needs to be added to dates array
+      if (!this.dates.includes(visitDate)) {
+        // Check if date is today or in the future
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayStr = this.formatDate(today);
+
+        const visitDateCheck = new Date(visitDate + 'T00:00:00');
+
+        if (visitDateCheck >= new Date(this.dates[this.dates.length - 1] + 'T00:00:00')) {
+          // Date is newer than our current range, regenerate dates
+          this.generateDates();
+          this.renderDateHeader();
+        }
+      }
+
+      // Refresh the grid
+      this.updateVirtualGrid();
+
+      // Update expanded view if it's open for this domain
+      if (this.expandedViewType === 'domain' && this.currentDomain === domain) {
+        this.showDomainView(domain);
+      } else if (this.expandedViewType === 'cell' && this.selectedCell) {
+        const cellDomain = this.selectedCell.dataset.domain;
+        const cellDate = this.selectedCell.dataset.date;
+
+        if (cellDomain === domain && cellDate === visitDate) {
+          // Update the cell view
+          const dayData = this.historyData[domain].days[visitDate];
+          this.showExpandedView(domain, visitDate, dayData.count);
+        }
+      }
+
+      console.log(`Live update: ${domain} visited (${visitDate})`);
+    } catch (e) {
+      console.warn('Invalid URL in live update:', historyItem.url);
     }
   }
 }
