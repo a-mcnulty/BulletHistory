@@ -726,6 +726,59 @@ class BulletHistory {
     closeBtn.addEventListener('click', () => {
       this.closeExpandedView();
     });
+
+    // Keyboard navigation (arrow keys)
+    document.addEventListener('keydown', (e) => {
+      if (expandedView.style.display !== 'block') return;
+
+      const domain = this.selectedCell?.dataset.domain;
+      const date = this.selectedCell?.dataset.date;
+
+      if (!domain || !date) return;
+
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        this.navigateDay(domain, date, -1);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        this.navigateDay(domain, date, 1);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        this.closeExpandedView();
+      }
+    });
+
+    // Horizontal scroll/swipe navigation
+    let scrollTimeout = null;
+    expandedView.addEventListener('wheel', (e) => {
+      if (expandedView.style.display !== 'block') return;
+
+      const domain = this.selectedCell?.dataset.domain;
+      const date = this.selectedCell?.dataset.date;
+
+      if (!domain || !date) return;
+
+      // Detect horizontal scroll (deltaX for horizontal, deltaY for vertical)
+      const isHorizontalScroll = Math.abs(e.deltaX) > Math.abs(e.deltaY);
+
+      if (isHorizontalScroll && Math.abs(e.deltaX) > 10) {
+        e.preventDefault();
+
+        // Debounce rapid scroll events
+        if (scrollTimeout) return;
+
+        scrollTimeout = setTimeout(() => {
+          scrollTimeout = null;
+        }, 200);
+
+        // Scroll right = next, scroll left = previous
+        if (e.deltaX > 0) {
+          this.navigateDay(domain, date, 1);
+        } else {
+          this.navigateDay(domain, date, -1);
+        }
+      }
+    }, { passive: false });
   }
 
   // Show expanded view with URLs
@@ -742,8 +795,61 @@ class BulletHistory {
       year: 'numeric'
     });
 
-    // Set title
-    expandedTitle.textContent = `${domain} - ${formattedDate} (${count} visit${count !== 1 ? 's' : ''})`;
+    // Set title and date
+    expandedTitle.textContent = `${domain} (${count} visit${count !== 1 ? 's' : ''})`;
+
+    // Update or create navigation controls
+    let navContainer = document.getElementById('expandedNav');
+    if (!navContainer) {
+      navContainer = document.createElement('div');
+      navContainer.id = 'expandedNav';
+      navContainer.className = 'expanded-nav';
+
+      const dateElement = document.createElement('span');
+      dateElement.id = 'expandedDate';
+      dateElement.className = 'expanded-date';
+
+      const prevBtn = document.createElement('button');
+      prevBtn.id = 'prevDay';
+      prevBtn.className = 'nav-btn';
+      prevBtn.innerHTML = '‹';
+      prevBtn.title = 'Previous day';
+
+      const nextBtn = document.createElement('button');
+      nextBtn.id = 'nextDay';
+      nextBtn.className = 'nav-btn';
+      nextBtn.innerHTML = '›';
+      nextBtn.title = 'Next day';
+
+      navContainer.appendChild(prevBtn);
+      navContainer.appendChild(dateElement);
+      navContainer.appendChild(nextBtn);
+
+      document.querySelector('.expanded-header').insertBefore(
+        navContainer,
+        document.getElementById('closeExpanded')
+      );
+    }
+
+    // Update click handlers with current date
+    const prevBtn = document.getElementById('prevDay');
+    const nextBtn = document.getElementById('nextDay');
+
+    // Remove old listeners by cloning
+    const newPrevBtn = prevBtn.cloneNode(true);
+    const newNextBtn = nextBtn.cloneNode(true);
+    prevBtn.parentNode.replaceChild(newPrevBtn, prevBtn);
+    nextBtn.parentNode.replaceChild(newNextBtn, nextBtn);
+
+    // Add new listeners with current date
+    newPrevBtn.addEventListener('click', () => this.navigateDay(domain, date, -1));
+    newNextBtn.addEventListener('click', () => this.navigateDay(domain, date, 1));
+
+    // Update date text
+    document.getElementById('expandedDate').textContent = formattedDate;
+
+    // Update button states
+    this.updateNavButtons(domain, date);
 
     // Get URLs for this cell
     const dayData = this.historyData[domain].days[date];
@@ -824,6 +930,63 @@ class BulletHistory {
       this.selectedCell.classList.remove('selected');
       this.selectedCell = null;
     }
+  }
+
+  // Navigate to previous or next day for the same domain
+  navigateDay(domain, currentDate, direction) {
+    // Get all dates for this domain sorted chronologically
+    const domainDates = Object.keys(this.historyData[domain].days).sort();
+
+    // Find current date index
+    const currentIndex = domainDates.indexOf(currentDate);
+
+    if (currentIndex === -1) return;
+
+    // Get next/prev date
+    const newIndex = currentIndex + direction;
+
+    if (newIndex >= 0 && newIndex < domainDates.length) {
+      const newDate = domainDates[newIndex];
+      const dayData = this.historyData[domain].days[newDate];
+
+      // Update selected cell
+      if (this.selectedCell) {
+        this.selectedCell.classList.remove('selected');
+      }
+
+      // Find and select the new cell (if visible)
+      const colIndex = this.dates.indexOf(newDate);
+      const rowIndex = this.sortedDomains.indexOf(domain);
+      const newCell = document.querySelector(`.cell[data-row-index="${rowIndex}"][data-col-index="${colIndex}"]`);
+
+      if (newCell) {
+        newCell.classList.add('selected');
+        this.selectedCell = newCell;
+      } else {
+        this.selectedCell = null;
+      }
+
+      // Show expanded view for new date
+      this.showExpandedView(domain, newDate, dayData.count);
+    }
+  }
+
+  // Update navigation button states based on available data
+  updateNavButtons(domain, currentDate) {
+    const prevBtn = document.getElementById('prevDay');
+    const nextBtn = document.getElementById('nextDay');
+
+    if (!prevBtn || !nextBtn) return;
+
+    // Get all dates for this domain sorted chronologically
+    const domainDates = Object.keys(this.historyData[domain].days).sort();
+
+    // Find current date index
+    const currentIndex = domainDates.indexOf(currentDate);
+
+    // Disable buttons at boundaries
+    prevBtn.disabled = currentIndex <= 0;
+    nextBtn.disabled = currentIndex >= domainDates.length - 1;
   }
 
   // Delete URL from history
