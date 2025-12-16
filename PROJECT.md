@@ -7,6 +7,7 @@ A visual "bullet journal" for browsing history that shows browsing patterns acro
 
 ```
                     [DECEMBER 2025        ]
+                    [M  T  W  T  F  S  S ...]
                     [1  2  3  4  5  6  7 ...]  ← Date header (scrolls horizontally)
 
 google.com    [🗑]  [█][█][░][█][█]...         ← TLD row + cells

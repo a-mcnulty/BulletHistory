@@ -24,7 +24,7 @@ class BulletHistory {
     };
 
     // DEBUG MODE: Set to true to generate fake history for testing
-    this.useFakeData = true;
+    this.useFakeData = false;
     this.fakeDomainCount = 100; // Number of domains to generate
     this.fakeDaysBack = 365; // Days of history to generate
 
@@ -352,9 +352,10 @@ class BulletHistory {
   // Calculate cell saturation based on visit count
   getCellSaturation(count, maxCount) {
     if (count === 0) return 0;
-    const minSaturation = 20;
+    const minSaturation = 40; // Raised from 20 for more vivid colors
     const maxSaturation = 90;
-    const normalized = Math.min(count / maxCount, 1);
+    // Use square root for better distribution - makes lower values more vivid
+    const normalized = Math.sqrt(Math.min(count / maxCount, 1));
     return minSaturation + (normalized * (maxSaturation - minSaturation));
   }
 
