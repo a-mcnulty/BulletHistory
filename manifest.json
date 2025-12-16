@@ -1,9 +1,22 @@
 {
   "manifest_version": 3,
-  "name": "My Extension",
+  "name": "Bullet History",
   "version": "1.0.0",
-  "description": "A minimal Chrome extension",
+  "description": "Visual bullet journal for browsing history",
+  "permissions": [
+    "history",
+    "browsingData",
+    "storage",
+    "bookmarks",
+    "sidePanel"
+  ],
+  "side_panel": {
+    "default_path": "panel.html"
+  },
   "action": {
-    "default_popup": "popup.html"
+    "default_title": "Open Bullet History"
+  },
+  "background": {
+    "service_worker": "background.js"
   }
 }

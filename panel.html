@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bullet History</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Date Header (fixed at top, scrolls horizontally) -->
+    <div class="header-section">
+      <div class="header-spacer"></div>
+      <div class="date-header" id="dateHeader">
+        <div class="date-header-inner">
+          <div class="month-row" id="monthRow"></div>
+          <div class="weekday-row" id="weekdayRow"></div>
+          <div class="day-row" id="dayRow"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main grid area -->
+    <div class="main-section">
+      <!-- TLD Column (fixed left, scrolls vertically) -->
+      <div class="tld-column" id="tldColumn"></div>
+
+      <!-- Cell Grid (scrolls both directions) -->
+      <div class="cell-grid-wrapper" id="cellGridWrapper">
+        <div class="cell-grid" id="cellGrid"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tooltip for hover -->
+  <div class="tooltip" id="tooltip"></div>
+
+  <script src="panel.js"></script>
+</body>
+</html>
