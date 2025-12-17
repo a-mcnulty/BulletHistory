@@ -34,11 +34,13 @@ class BulletHistory {
   async init() {
     // Initialize state before loading data
     this.selectedCell = null;
-    this.expandedViewType = null; // 'cell' or 'domain'
+    this.expandedViewType = null; // 'cell', 'domain', or 'full'
     this.currentDomain = null; // Track current domain for domain view
     this.sortMode = 'recent'; // 'recent', 'frequency', or 'alphabetical'
     this.searchFilter = ''; // Search filter text
     this.virtualGridInitialized = false; // Track if listeners are set up
+    this.currentPage = 1; // Current page for expanded view pagination
+    this.itemsPerPage = 100; // Items per page
 
     await this.loadColors();
     await this.fetchHistory();
@@ -53,6 +55,9 @@ class BulletHistory {
     this.setupLiveUpdates();
     this.setupSortDropdown();
     this.setupSearchInput();
+
+    // Show full history by default
+    this.showFullHistory();
   }
 
   // Generate date range from first to last history date
@@ -847,6 +852,58 @@ class BulletHistory {
     }, { passive: false });
   }
 
+  // Show full history view with all URLs from all domains
+  showFullHistory() {
+    const expandedView = document.getElementById('expandedView');
+    const expandedTitle = document.getElementById('expandedTitle');
+
+    // Set view type
+    this.expandedViewType = 'full';
+    this.currentDomain = null;
+
+    // Calculate total visits across all domains
+    let totalVisits = 0;
+    Object.values(this.historyData).forEach(domainData => {
+      Object.values(domainData.days).forEach(day => {
+        totalVisits += day.count;
+      });
+    });
+
+    // Set title
+    expandedTitle.textContent = `Full History (${totalVisits} total visit${totalVisits !== 1 ? 's' : ''})`;
+
+    // Remove navigation and delete button if they exist
+    const navContainer = document.getElementById('expandedNav');
+    if (navContainer) navContainer.remove();
+    const deleteBtn = document.getElementById('deleteDomain');
+    if (deleteBtn) deleteBtn.remove();
+
+    // Collect all URLs from all domains with their dates
+    const allUrls = [];
+    Object.keys(this.historyData).forEach(domain => {
+      Object.keys(this.historyData[domain].days).forEach(dateStr => {
+        const dayData = this.historyData[domain].days[dateStr];
+        dayData.urls.forEach(urlData => {
+          allUrls.push({
+            ...urlData,
+            domain: domain,
+            date: dateStr
+          });
+        });
+      });
+    });
+
+    // Sort by most recent first
+    allUrls.sort((a, b) => b.lastVisit - a.lastVisit);
+
+    // Store URLs and render with pagination
+    this.expandedUrls = allUrls;
+    this.currentPage = 1;
+    this.renderUrlList();
+
+    expandedView.style.display = 'block';
+  }
+
   // Show domain view with all URLs grouped by date
   showDomainView(domain) {
     const expandedView = document.getElementById('expandedView');
@@ -893,40 +950,27 @@ class BulletHistory {
     deleteBtn.parentNode.replaceChild(newDeleteBtn, deleteBtn);
     newDeleteBtn.addEventListener('click', () => this.deleteDomain(domain));
 
-    // Get all dates sorted (most recent first)
-    const dates = Object.keys(domainData.days).sort().reverse();
-
-    // Render URL list grouped by date
-    urlList.innerHTML = '';
-
-    dates.forEach(dateStr => {
+    // Collect all URLs for this domain
+    const allUrls = [];
+    Object.keys(domainData.days).forEach(dateStr => {
       const dayData = domainData.days[dateStr];
-
-      // Date header
-      const dateObj = new Date(dateStr + 'T00:00:00');
-      const formattedDate = dateObj.toLocaleDateString('en-US', {
-        month: 'long',
-        day: 'numeric',
-        year: 'numeric'
-      });
-
-      const dateHeader = document.createElement('div');
-      dateHeader.className = 'date-group-header';
-      dateHeader.textContent = `${formattedDate} (${dayData.count} visit${dayData.count !== 1 ? 's' : ''})`;
-      urlList.appendChild(dateHeader);
-
-      // Sort URLs chronologically (most recent first)
-      const urls = [...dayData.urls].sort((a, b) => b.lastVisit - a.lastVisit);
-
-      // Render each URL
-      urls.forEach(urlData => {
-        const urlItem = this.createUrlItem(urlData, domain, dateStr);
-        urlList.appendChild(urlItem);
+      dayData.urls.forEach(urlData => {
+        allUrls.push({
+          ...urlData,
+          domain: domain,
+          date: dateStr
+        });
       });
     });
 
-    // Set height to 50vh
-    expandedView.style.maxHeight = '50vh';
+    // Sort by most recent first
+    allUrls.sort((a, b) => b.lastVisit - a.lastVisit);
+
+    // Store URLs and render with pagination
+    this.expandedUrls = allUrls;
+    this.currentPage = 1;
+    this.renderUrlList();
+
     expandedView.style.display = 'block';
   }
 
@@ -1021,16 +1065,102 @@ class BulletHistory {
     // Sort URLs chronologically (most recent first)
     const urls = [...dayData.urls].sort((a, b) => b.lastVisit - a.lastVisit);
 
-    // Render URL list
+    // Add domain and date to each URL
+    const urlsWithContext = urls.map(urlData => ({
+      ...urlData,
+      domain: domain,
+      date: date
+    }));
+
+    // Store URLs and render with pagination
+    this.expandedUrls = urlsWithContext;
+    this.currentPage = 1;
+    this.renderUrlList();
+
+    expandedView.style.display = 'block';
+  }
+
+  // Render URL list with pagination
+  renderUrlList() {
+    const urlList = document.getElementById('urlList');
+    const expandedView = document.getElementById('expandedView');
+
+    // Calculate pagination
+    const totalItems = this.expandedUrls.length;
+    const totalPages = Math.ceil(totalItems / this.itemsPerPage);
+    const startIndex = (this.currentPage - 1) * this.itemsPerPage;
+    const endIndex = Math.min(startIndex + this.itemsPerPage, totalItems);
+
+    // Clear list
     urlList.innerHTML = '';
-    urls.forEach(urlData => {
-      const urlItem = this.createUrlItem(urlData, domain, date);
+
+    // Render items for current page
+    for (let i = startIndex; i < endIndex; i++) {
+      const urlData = this.expandedUrls[i];
+      const urlItem = this.createUrlItem(urlData, urlData.domain, urlData.date);
       urlList.appendChild(urlItem);
+    }
+
+    // Update or create pagination controls
+    this.renderPaginationControls(totalPages, totalItems);
+  }
+
+  // Render pagination controls
+  renderPaginationControls(totalPages, totalItems) {
+    const expandedView = document.getElementById('expandedView');
+
+    // Remove existing pagination if present
+    let pagination = document.getElementById('pagination');
+    if (pagination) {
+      pagination.remove();
+    }
+
+    // Only show pagination if there's more than one page
+    if (totalPages <= 1) return;
+
+    // Create pagination container
+    pagination = document.createElement('div');
+    pagination.id = 'pagination';
+    pagination.className = 'pagination';
+
+    // Previous button
+    const prevBtn = document.createElement('button');
+    prevBtn.className = 'pagination-btn';
+    prevBtn.textContent = '‹ Previous';
+    prevBtn.disabled = this.currentPage === 1;
+    prevBtn.addEventListener('click', () => {
+      if (this.currentPage > 1) {
+        this.currentPage--;
+        this.renderUrlList();
+        expandedView.scrollTop = 0;
+      }
     });
 
-    // Reset height to 300px for cell view
-    expandedView.style.maxHeight = '300px';
-    expandedView.style.display = 'block';
+    // Page info
+    const pageInfo = document.createElement('span');
+    pageInfo.className = 'pagination-info';
+    const start = (this.currentPage - 1) * this.itemsPerPage + 1;
+    const end = Math.min(this.currentPage * this.itemsPerPage, totalItems);
+    pageInfo.textContent = `${start}-${end} of ${totalItems}`;
+
+    // Next button
+    const nextBtn = document.createElement('button');
+    nextBtn.className = 'pagination-btn';
+    nextBtn.textContent = 'Next ›';
+    nextBtn.disabled = this.currentPage === totalPages;
+    nextBtn.addEventListener('click', () => {
+      if (this.currentPage < totalPages) {
+        this.currentPage++;
+        this.renderUrlList();
+        expandedView.scrollTop = 0;
+      }
+    });
+
+    pagination.appendChild(prevBtn);
+    pagination.appendChild(pageInfo);
+    pagination.appendChild(nextBtn);
+
+    expandedView.appendChild(pagination);
   }
 
   // Create a URL item element

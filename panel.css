@@ -287,8 +287,10 @@ body {
 .expanded-view {
   border-top: 1px solid #e0e0e0;
   background: #fafafa;
-  max-height: 300px;
+  max-height: 50vh;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .expanded-header {
@@ -298,9 +300,7 @@ body {
   padding: 16px 20px;
   background: #fff;
   border-bottom: 1px solid #e0e0e0;
-  position: sticky;
-  top: 0;
-  z-index: 10;
+  flex-shrink: 0;
   gap: 16px;
 }
 
@@ -401,12 +401,10 @@ body {
   color: #666;
   padding: 12px 20px 8px 20px;
   background: #fafafa;
-  margin-top: 8px;
   letter-spacing: 0.02em;
-}
-
-.date-group-header:first-child {
-  margin-top: 0;
+  position: absolute;
+  left: 0;
+  right: 0;
 }
 
 .url-item {
@@ -511,4 +509,46 @@ body {
   border: 2px solid #333;
   border-radius: 4px;
   z-index: 11;
+}
+
+/* Pagination controls */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: #fff;
+  border-top: 1px solid #e0e0e0;
+  font-size: 11px;
+  color: #666;
+}
+
+.pagination-btn {
+  background: none;
+  border: 1px solid #e0e0e0;
+  cursor: pointer;
+  padding: 4px 12px;
+  font-size: 11px;
+  color: #666;
+  border-radius: 3px;
+  transition: all 0.15s ease;
+  font-weight: 500;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  border-color: #333;
+  color: #333;
+  background: #fafafa;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.pagination-info {
+  font-weight: 500;
+  min-width: 120px;
+  text-align: center;
 }
