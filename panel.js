@@ -1651,47 +1651,6 @@ class BulletHistory {
     });
   }
 
-  setupResizeHandle() {
-    const resizeHandle = document.getElementById('resizeHandle');
-    const tldColumn = document.getElementById('tldColumn');
-    const headerSpacer = document.querySelector('.header-spacer');
-
-    let isResizing = false;
-    let startX = 0;
-    let startWidth = 0;
-
-    resizeHandle.addEventListener('mousedown', (e) => {
-      isResizing = true;
-      startX = e.clientX;
-      startWidth = tldColumn.offsetWidth;
-
-      resizeHandle.classList.add('resizing');
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-
-      e.preventDefault();
-    });
-
-    document.addEventListener('mousemove', (e) => {
-      if (!isResizing) return;
-
-      const deltaX = e.clientX - startX;
-      const newWidth = Math.max(80, Math.min(400, startWidth + deltaX));
-
-      tldColumn.style.width = `${newWidth}px`;
-      headerSpacer.style.width = `${newWidth}px`;
-    });
-
-    document.addEventListener('mouseup', () => {
-      if (isResizing) {
-        isResizing = false;
-        resizeHandle.classList.remove('resizing');
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-      }
-    });
-  }
-
   // Show recent history (last 100 visits)
   showRecentHistory() {
     const expandedView = document.getElementById('expandedView');

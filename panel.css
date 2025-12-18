@@ -31,8 +31,6 @@ body {
 
 .header-spacer {
   width: 150px;
-  min-width: 80px;
-  max-width: 400px;
   background: #fafafa;
   border-right: 1px solid #ddd;
   display: flex;
@@ -159,8 +157,6 @@ body {
 /* TLD Column (fixed left) */
 .tld-column {
   width: 150px;
-  min-width: 80px;
-  max-width: 400px;
   overflow-y: auto;
   overflow-x: hidden;
   border-right: 1px solid #ddd;
@@ -173,26 +169,6 @@ body {
 
 .tld-column::-webkit-scrollbar {
   display: none;
-}
-
-.resize-handle {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 5px;
-  height: 100%;
-  cursor: col-resize;
-  z-index: 10;
-  background: transparent;
-  transition: background 0.15s ease;
-}
-
-.resize-handle:hover {
-  background: rgba(0, 0, 0, 0.1);
-}
-
-.resize-handle.resizing {
-  background: rgba(0, 0, 0, 0.2);
 }
 
 .tld-row {
