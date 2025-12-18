@@ -9,7 +9,8 @@
     "storage",
     "bookmarks",
     "sidePanel",
-    "sessions"
+    "sessions",
+    "tabs"
   ],
   "side_panel": {
     "default_path": "panel.html"

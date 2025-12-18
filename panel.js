@@ -1851,12 +1851,12 @@ class BulletHistory {
     const deleteBtn = document.getElementById('deleteDomain');
     if (deleteBtn) deleteBtn.remove();
 
-    // Get recently closed sessions
-    chrome.sessions.getRecentlyClosed({ maxResults: 25 }, (sessions) => {
-      console.log('Recently closed sessions:', sessions);
+    // Get closed tabs from storage
+    chrome.storage.local.get(['closedTabs'], (result) => {
+      const closedTabs = result.closedTabs || [];
 
-      if (sessions.length === 0) {
-        urlList.innerHTML = '<div style="padding: 16px 20px; color: #999; text-align: center;">No recently closed tabs.</div>';
+      if (closedTabs.length === 0) {
+        urlList.innerHTML = '<div style="padding: 16px 20px; color: #999; text-align: center;">No recently closed tabs.<br><span style="font-size: 10px; margin-top: 8px; display: block;">Close some tabs to see them appear here.</span></div>';
         expandedTitle.textContent = 'Recently Closed (0)';
 
         const pagination = document.getElementById('pagination');
@@ -1866,76 +1866,24 @@ class BulletHistory {
         return;
       }
 
-      // Get recent history to match with sessions
-      // Look back 7 days to catch all sessions
-      const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+      urlList.innerHTML = '';
 
-      chrome.history.search({
-        text: '',
-        startTime: sevenDaysAgo,
-        maxResults: 10000
-      }, (historyItems) => {
-        console.log('History items for matching:', historyItems.length);
-
-        // Create a map of timestamp -> history item for quick lookup
-        const historyMap = new Map();
-        historyItems.forEach(item => {
-          historyMap.set(item.lastVisitTime, item);
-        });
-
-        urlList.innerHTML = '';
-        let itemCount = 0;
-
-        sessions.forEach(session => {
-          console.log('Session:', session);
-
-          let matchedHistory = null;
-
-          // Try to find matching history item by timestamp (within 1 second)
-          const sessionTime = session.lastModified;
-          for (let offset = -1000; offset <= 1000; offset += 100) {
-            const checkTime = sessionTime + offset;
-            if (historyMap.has(checkTime)) {
-              matchedHistory = historyMap.get(checkTime);
-              break;
-            }
-          }
-
-          if (session.tab) {
-            console.log('Tab data:', session.tab);
-            console.log('Matched history:', matchedHistory);
-
-            // It's a single tab
-            const item = this.createClosedSessionItem(session, 'tab', matchedHistory);
-            if (item) {
-              urlList.appendChild(item);
-              itemCount++;
-            }
-          } else if (session.window) {
-            console.log('Window data:', session.window);
-
-            // It's a window with multiple tabs
-            const item = this.createClosedSessionItem(session, 'window', null);
-            if (item) {
-              urlList.appendChild(item);
-              itemCount++;
-            }
-          }
-        });
-
-        expandedTitle.textContent = `Recently Closed (${itemCount})`;
-
-        // Remove pagination (sessions are limited to 25)
-        const pagination = document.getElementById('pagination');
-        if (pagination) pagination.remove();
-
-        expandedView.style.display = 'block';
+      closedTabs.forEach((tabData, index) => {
+        const item = this.createClosedTabItem(tabData, index);
+        urlList.appendChild(item);
       });
+
+      expandedTitle.textContent = `Recently Closed (${closedTabs.length})`;
+
+      const pagination = document.getElementById('pagination');
+      if (pagination) pagination.remove();
+
+      expandedView.style.display = 'flex';
     });
   }
 
-  // Create a closed session item (tab or window)
-  createClosedSessionItem(session, type, matchedHistory) {
+  // Create a closed tab item
+  createClosedTabItem(tabData, index) {
     const item = document.createElement('div');
     item.className = 'url-item';
 
@@ -1946,54 +1894,66 @@ class BulletHistory {
     const restoreBtn = document.createElement('button');
     restoreBtn.className = 'icon-btn restore';
     restoreBtn.textContent = 'restore';
-    restoreBtn.title = 'Restore this tab/window';
-    restoreBtn.addEventListener('click', () => {
-      const sessionId = session.tab?.sessionId || session.window?.sessionId;
-      chrome.sessions.restore(sessionId, () => {
-        // Refresh the list after restoring
-        this.showRecentlyClosed();
-      });
+    restoreBtn.title = 'Reopen this tab';
+    restoreBtn.addEventListener('click', async () => {
+      // Open the URL in a new tab
+      chrome.tabs.create({ url: tabData.url });
+
+      // Remove this item from storage
+      const result = await chrome.storage.local.get(['closedTabs']);
+      const closedTabs = result.closedTabs || [];
+      closedTabs.splice(index, 1);
+      await chrome.storage.local.set({ closedTabs });
+
+      // Refresh the list
+      this.showRecentlyClosed();
+    });
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'icon-btn delete';
+    deleteBtn.textContent = 'delete';
+    deleteBtn.title = 'Remove from list';
+    deleteBtn.addEventListener('click', async () => {
+      // Remove this item from storage
+      const result = await chrome.storage.local.get(['closedTabs']);
+      const closedTabs = result.closedTabs || [];
+      closedTabs.splice(index, 1);
+      await chrome.storage.local.set({ closedTabs });
+
+      // Refresh the list
+      this.showRecentlyClosed();
     });
 
     leftDiv.appendChild(restoreBtn);
+    leftDiv.appendChild(deleteBtn);
 
     // Right side: Favicon + Title/URL info
     const rightDiv = document.createElement('div');
     rightDiv.className = 'url-item-right';
 
-    if (type === 'tab' && matchedHistory) {
-      // Add favicon
-      const favicon = document.createElement('img');
-      favicon.className = 'url-favicon';
-      favicon.src = `https://www.google.com/s2/favicons?domain=${matchedHistory.url}&sz=16`;
-      favicon.alt = '';
-      favicon.width = 16;
-      favicon.height = 16;
+    // Add favicon
+    const favicon = document.createElement('img');
+    favicon.className = 'url-favicon';
+    favicon.src = tabData.favIconUrl || `https://www.google.com/s2/favicons?domain=${tabData.url}&sz=16`;
+    favicon.alt = '';
+    favicon.width = 16;
+    favicon.height = 16;
 
-      // Show title or URL
-      const text = document.createElement('span');
-      text.textContent = matchedHistory.title || matchedHistory.url;
-      text.style.color = '#555';
+    // Create clickable link
+    const urlLink = document.createElement('a');
+    urlLink.href = tabData.url;
+    urlLink.target = '_blank';
 
-      rightDiv.appendChild(favicon);
-      rightDiv.appendChild(text);
-    } else if (type === 'tab') {
-      // No matched history - show generic tab info
-      const text = document.createElement('span');
-      text.textContent = 'Closed tab (no history match)';
-      text.style.color = '#999';
-      rightDiv.appendChild(text);
-    } else if (type === 'window' && session.window) {
-      // Window - show tab count
-      const tabCount = session.window.tabs.length;
-      const text = document.createElement('span');
-      text.textContent = `Window with ${tabCount} tab${tabCount !== 1 ? 's' : ''}`;
-      text.style.color = '#555';
-      text.style.fontWeight = '500';
-      rightDiv.appendChild(text);
+    // Truncate URLs longer than 400 characters
+    if (tabData.url.length > 400) {
+      urlLink.textContent = tabData.title || tabData.url.substring(0, 400) + '...';
+      urlLink.title = tabData.url;
     } else {
-      return null; // Skip if we can't display it
+      urlLink.textContent = tabData.title || tabData.url;
     }
+
+    rightDiv.appendChild(favicon);
+    rightDiv.appendChild(urlLink);
 
     item.appendChild(leftDiv);
     item.appendChild(rightDiv);
