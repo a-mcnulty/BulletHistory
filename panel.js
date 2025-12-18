@@ -1242,7 +1242,115 @@ class BulletHistory {
     urlItem.appendChild(leftDiv);
     urlItem.appendChild(rightDiv);
 
+    // Add hover preview functionality to the URL link only
+    this.attachUrlPreview(urlLink, urlData);
+
     return urlItem;
+  }
+
+  // Attach URL preview tooltip to a URL item
+  attachUrlPreview(urlItem, urlData) {
+    const previewTooltip = document.getElementById('urlPreviewTooltip');
+    let hoverTimeout;
+
+    urlItem.addEventListener('mouseenter', (e) => {
+      // Delay showing the preview slightly
+      hoverTimeout = setTimeout(() => {
+        this.showUrlPreview(urlData, e);
+      }, 300);
+    });
+
+    urlItem.addEventListener('mouseleave', () => {
+      clearTimeout(hoverTimeout);
+      previewTooltip.classList.remove('visible');
+    });
+
+    urlItem.addEventListener('mousemove', (e) => {
+      if (previewTooltip.classList.contains('visible')) {
+        this.positionUrlPreview(e);
+      }
+    });
+  }
+
+  // Show URL preview tooltip
+  showUrlPreview(urlData, event) {
+    const previewTooltip = document.getElementById('urlPreviewTooltip');
+
+    // Format last visit date
+    const lastVisitDate = new Date(urlData.lastVisit);
+    const now = new Date();
+    const diffMs = now - lastVisitDate;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    let timeAgo;
+    if (diffMins < 1) {
+      timeAgo = 'Just now';
+    } else if (diffMins < 60) {
+      timeAgo = `${diffMins} min${diffMins !== 1 ? 's' : ''} ago`;
+    } else if (diffHours < 24) {
+      timeAgo = `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+    } else if (diffDays < 30) {
+      timeAgo = `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+    } else {
+      timeAgo = lastVisitDate.toLocaleDateString();
+    }
+
+    // Determine if this is from recently closed view (visitCount = 1 usually means closed tab)
+    const isClosedTab = this.expandedViewType === 'closed';
+    const timeLabel = isClosedTab ? 'Closed' : 'Last visited';
+
+    // Build preview content
+    previewTooltip.innerHTML = `
+      <div class="url-preview-header">
+        <img src="https://www.google.com/s2/favicons?domain=${urlData.url}&sz=32"
+             class="url-preview-favicon"
+             width="32"
+             height="32"
+             alt="">
+        <div class="url-preview-title">${urlData.title || 'Untitled'}</div>
+      </div>
+      <div class="url-preview-url">${urlData.url}</div>
+      <div class="url-preview-meta">
+        ${isClosedTab ? '' : `<div class="url-preview-meta-item">
+          <span class="url-preview-meta-label">Visits</span>
+          <span class="url-preview-meta-value">${urlData.visitCount}</span>
+        </div>`}
+        <div class="url-preview-meta-item">
+          <span class="url-preview-meta-label">${timeLabel}</span>
+          <span class="url-preview-meta-value">${timeAgo}</span>
+        </div>
+      </div>
+    `;
+
+    this.positionUrlPreview(event);
+    previewTooltip.classList.add('visible');
+  }
+
+  // Position the URL preview tooltip
+  positionUrlPreview(event) {
+    const previewTooltip = document.getElementById('urlPreviewTooltip');
+    const offsetX = 15;
+    const offsetY = 15;
+
+    let x = event.clientX + offsetX;
+    let y = event.clientY + offsetY;
+
+    // Get tooltip dimensions
+    const rect = previewTooltip.getBoundingClientRect();
+
+    // Prevent tooltip from going off screen
+    if (x + rect.width > window.innerWidth) {
+      x = event.clientX - rect.width - offsetX;
+    }
+
+    if (y + rect.height > window.innerHeight) {
+      y = event.clientY - rect.height - offsetY;
+    }
+
+    previewTooltip.style.left = `${x}px`;
+    previewTooltip.style.top = `${y}px`;
   }
 
   // Close expanded view
@@ -1968,6 +2076,16 @@ class BulletHistory {
 
     item.appendChild(leftDiv);
     item.appendChild(rightDiv);
+
+    // Add hover preview to the URL link
+    // Create urlData object compatible with attachUrlPreview
+    const urlData = {
+      url: tabData.url,
+      title: tabData.title,
+      visitCount: 1, // We don't track visit count for closed tabs
+      lastVisit: tabData.closedAt // Use closed time as "last visit"
+    };
+    this.attachUrlPreview(urlLink, urlData);
 
     return item;
   }
