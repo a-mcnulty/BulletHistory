@@ -64,6 +64,7 @@ class BulletHistory {
     this.setupSortDropdown();
     this.setupSearchInput();
     this.setupBottomMenu();
+    this.setupZoomControls();
 
     // Show full history by default
     this.showFullHistory();
@@ -1621,6 +1622,73 @@ class BulletHistory {
 
     document.getElementById('recentlyClosedBtn').addEventListener('click', () => {
       this.showRecentlyClosed();
+    });
+  }
+
+  // Setup zoom controls (Command+/Command-)
+  setupZoomControls() {
+    let currentZoom = 1.0;
+
+    document.addEventListener('keydown', (e) => {
+      // Check for Command/Ctrl + Plus/Minus
+      if ((e.metaKey || e.ctrlKey) && (e.key === '+' || e.key === '=' || e.key === '-' || e.key === '0')) {
+        e.preventDefault();
+
+        if (e.key === '+' || e.key === '=') {
+          // Zoom in
+          currentZoom = Math.min(currentZoom + 0.1, 3.0);
+        } else if (e.key === '-') {
+          // Zoom out
+          currentZoom = Math.max(currentZoom - 0.1, 0.5);
+        } else if (e.key === '0') {
+          // Reset zoom
+          currentZoom = 1.0;
+        }
+
+        document.body.style.zoom = currentZoom;
+        console.log('Zoom level:', currentZoom);
+      }
+    });
+  }
+
+  setupResizeHandle() {
+    const resizeHandle = document.getElementById('resizeHandle');
+    const tldColumn = document.getElementById('tldColumn');
+    const headerSpacer = document.querySelector('.header-spacer');
+
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    resizeHandle.addEventListener('mousedown', (e) => {
+      isResizing = true;
+      startX = e.clientX;
+      startWidth = tldColumn.offsetWidth;
+
+      resizeHandle.classList.add('resizing');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isResizing) return;
+
+      const deltaX = e.clientX - startX;
+      const newWidth = Math.max(80, Math.min(400, startWidth + deltaX));
+
+      tldColumn.style.width = `${newWidth}px`;
+      headerSpacer.style.width = `${newWidth}px`;
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (isResizing) {
+        isResizing = false;
+        resizeHandle.classList.remove('resizing');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
     });
   }
 

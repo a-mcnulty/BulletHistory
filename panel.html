@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, minimum-scale=0.5, maximum-scale=3.0">
   <title>Bullet History</title>
   <link rel="stylesheet" href="panel.css">
 </head>
@@ -30,7 +30,9 @@
     <!-- Main grid area -->
     <div class="main-section">
       <!-- TLD Column (fixed left, scrolls vertically) -->
-      <div class="tld-column" id="tldColumn"></div>
+      <div class="tld-column" id="tldColumn">
+        <div class="resize-handle" id="resizeHandle"></div>
+      </div>
 
       <!-- Cell Grid (scrolls both directions) -->
       <div class="cell-grid-wrapper" id="cellGridWrapper">
