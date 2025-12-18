@@ -1493,6 +1493,17 @@ class BulletHistory {
       this.handleNewVisit(historyItem);
     });
 
+    // Listen for storage changes (recently closed tabs)
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes.closedTabs) {
+        console.log('Closed tabs updated');
+        // If we're currently viewing recently closed, refresh it
+        if (this.expandedViewType === 'closed') {
+          this.showRecentlyClosed();
+        }
+      }
+    });
+
     console.log('Live updates listener registered');
   }
 
