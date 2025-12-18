@@ -8,7 +8,8 @@
     "browsingData",
     "storage",
     "bookmarks",
-    "sidePanel"
+    "sidePanel",
+    "sessions"
   ],
   "side_panel": {
     "default_path": "panel.html"

@@ -39,8 +39,16 @@ class BulletHistory {
     this.sortMode = 'recent'; // 'recent', 'frequency', or 'alphabetical'
     this.searchFilter = ''; // Search filter text
     this.virtualGridInitialized = false; // Track if listeners are set up
-    this.currentPage = 1; // Current page for expanded view pagination
     this.itemsPerPage = 100; // Items per page
+    // Track pagination per view type
+    this.viewPagination = {
+      full: 1,
+      recent: 1,
+      bookmarks: 1,
+      frequent: 1,
+      domain: 1,
+      cell: 1
+    };
 
     await this.loadColors();
     await this.fetchHistory();
@@ -55,6 +63,7 @@ class BulletHistory {
     this.setupLiveUpdates();
     this.setupSortDropdown();
     this.setupSearchInput();
+    this.setupBottomMenu();
 
     // Show full history by default
     this.showFullHistory();
@@ -898,7 +907,6 @@ class BulletHistory {
 
     // Store URLs and render with pagination
     this.expandedUrls = allUrls;
-    this.currentPage = 1;
     this.renderUrlList();
 
     expandedView.style.display = 'block';
@@ -968,7 +976,6 @@ class BulletHistory {
 
     // Store URLs and render with pagination
     this.expandedUrls = allUrls;
-    this.currentPage = 1;
     this.renderUrlList();
 
     expandedView.style.display = 'block';
@@ -1074,7 +1081,6 @@ class BulletHistory {
 
     // Store URLs and render with pagination
     this.expandedUrls = urlsWithContext;
-    this.currentPage = 1;
     this.renderUrlList();
 
     expandedView.style.display = 'block';
@@ -1085,10 +1091,13 @@ class BulletHistory {
     const urlList = document.getElementById('urlList');
     const expandedView = document.getElementById('expandedView');
 
+    // Get current page for this view type
+    const currentPage = this.viewPagination[this.expandedViewType] || 1;
+
     // Calculate pagination
     const totalItems = this.expandedUrls.length;
     const totalPages = Math.ceil(totalItems / this.itemsPerPage);
-    const startIndex = (this.currentPage - 1) * this.itemsPerPage;
+    const startIndex = (currentPage - 1) * this.itemsPerPage;
     const endIndex = Math.min(startIndex + this.itemsPerPage, totalItems);
 
     // Clear list
@@ -1102,11 +1111,11 @@ class BulletHistory {
     }
 
     // Update or create pagination controls
-    this.renderPaginationControls(totalPages, totalItems);
+    this.renderPaginationControls(totalPages, totalItems, currentPage);
   }
 
   // Render pagination controls
-  renderPaginationControls(totalPages, totalItems) {
+  renderPaginationControls(totalPages, totalItems, currentPage) {
     const expandedView = document.getElementById('expandedView');
 
     // Remove existing pagination if present
@@ -1127,10 +1136,10 @@ class BulletHistory {
     const prevBtn = document.createElement('button');
     prevBtn.className = 'pagination-btn';
     prevBtn.textContent = '‹ Previous';
-    prevBtn.disabled = this.currentPage === 1;
+    prevBtn.disabled = currentPage === 1;
     prevBtn.addEventListener('click', () => {
-      if (this.currentPage > 1) {
-        this.currentPage--;
+      if (currentPage > 1) {
+        this.viewPagination[this.expandedViewType]--;
         this.renderUrlList();
         expandedView.scrollTop = 0;
       }
@@ -1139,18 +1148,18 @@ class BulletHistory {
     // Page info
     const pageInfo = document.createElement('span');
     pageInfo.className = 'pagination-info';
-    const start = (this.currentPage - 1) * this.itemsPerPage + 1;
-    const end = Math.min(this.currentPage * this.itemsPerPage, totalItems);
+    const start = (currentPage - 1) * this.itemsPerPage + 1;
+    const end = Math.min(currentPage * this.itemsPerPage, totalItems);
     pageInfo.textContent = `${start}-${end} of ${totalItems}`;
 
     // Next button
     const nextBtn = document.createElement('button');
     nextBtn.className = 'pagination-btn';
     nextBtn.textContent = 'Next ›';
-    nextBtn.disabled = this.currentPage === totalPages;
+    nextBtn.disabled = currentPage === totalPages;
     nextBtn.addEventListener('click', () => {
-      if (this.currentPage < totalPages) {
-        this.currentPage++;
+      if (currentPage < totalPages) {
+        this.viewPagination[this.expandedViewType]++;
         this.renderUrlList();
         expandedView.scrollTop = 0;
       }
@@ -1200,16 +1209,33 @@ class BulletHistory {
     leftDiv.appendChild(countSpan);
     leftDiv.appendChild(actionsDiv);
 
-    // Right side: URL as clickable link
+    // Right side: Favicon + URL as clickable link
     const rightDiv = document.createElement('div');
     rightDiv.className = 'url-item-right';
 
+    // Add favicon
+    const favicon = document.createElement('img');
+    favicon.className = 'url-favicon';
+    favicon.src = `https://www.google.com/s2/favicons?domain=${urlData.url}&sz=16`;
+    favicon.alt = '';
+    favicon.width = 16;
+    favicon.height = 16;
+
     const urlLink = document.createElement('a');
     urlLink.href = urlData.url;
-    urlLink.textContent = urlData.url;
+
+    // Truncate URLs longer than 400 characters
+    if (urlData.url.length > 400) {
+      urlLink.textContent = urlData.url.substring(0, 400) + '...';
+      urlLink.title = urlData.url; // Show full URL on hover
+    } else {
+      urlLink.textContent = urlData.url;
+    }
+
     urlLink.target = '_blank';
     urlLink.rel = 'noopener noreferrer';
 
+    rightDiv.appendChild(favicon);
     rightDiv.appendChild(urlLink);
 
     urlItem.appendChild(leftDiv);
@@ -1567,6 +1593,375 @@ class BulletHistory {
     } catch (e) {
       console.warn('Invalid URL in live update:', historyItem.url);
     }
+  }
+
+  // Setup bottom menu buttons
+  setupBottomMenu() {
+    document.getElementById('recentHistoryBtn').addEventListener('click', () => {
+      this.showRecentHistory();
+    });
+
+    document.getElementById('bookmarksBtn').addEventListener('click', () => {
+      this.showBookmarks();
+    });
+
+    document.getElementById('frequentBtn').addEventListener('click', () => {
+      this.showFrequentlyVisited();
+    });
+
+    document.getElementById('recentlyClosedBtn').addEventListener('click', () => {
+      this.showRecentlyClosed();
+    });
+  }
+
+  // Show recent history (last 100 visits)
+  showRecentHistory() {
+    const expandedView = document.getElementById('expandedView');
+    const expandedTitle = document.getElementById('expandedTitle');
+
+    this.expandedViewType = 'recent';
+    this.currentDomain = null;
+
+    expandedTitle.textContent = 'Recent History';
+
+    // Remove navigation and delete button if they exist
+    const navContainer = document.getElementById('expandedNav');
+    if (navContainer) navContainer.remove();
+    const deleteBtn = document.getElementById('deleteDomain');
+    if (deleteBtn) deleteBtn.remove();
+
+    // Get recent history from Chrome
+    chrome.history.search({
+      text: '',
+      maxResults: 1000,
+      startTime: 0
+    }, (results) => {
+      const recentUrls = results.map(item => ({
+        url: item.url,
+        title: item.title || item.url,
+        visitCount: item.visitCount,
+        lastVisit: item.lastVisitTime,
+        domain: new URL(item.url).hostname.replace(/^www\./, ''),
+        date: new Date(item.lastVisitTime).toISOString().split('T')[0]
+      }));
+
+      // Sort by most recent
+      recentUrls.sort((a, b) => b.lastVisit - a.lastVisit);
+
+      this.expandedUrls = recentUrls;
+      this.renderUrlList();
+
+      expandedView.style.display = 'block';
+    });
+  }
+
+  // Show bookmarks organized by folders
+  async showBookmarks() {
+    const expandedView = document.getElementById('expandedView');
+    const expandedTitle = document.getElementById('expandedTitle');
+    const urlList = document.getElementById('urlList');
+
+    this.expandedViewType = 'bookmarks';
+    this.currentDomain = null;
+
+    expandedTitle.textContent = 'Bookmarks';
+
+    // Remove navigation and delete button if they exist
+    const navContainer = document.getElementById('expandedNav');
+    if (navContainer) navContainer.remove();
+    const deleteBtn = document.getElementById('deleteDomain');
+    if (deleteBtn) deleteBtn.remove();
+
+    // Get all bookmarks
+    chrome.bookmarks.getTree((bookmarkTree) => {
+      const bookmarks = [];
+
+      // Recursively collect all bookmarks with folder info
+      const collectBookmarks = (nodes, folderPath = []) => {
+        nodes.forEach(node => {
+          if (node.url) {
+            // It's a bookmark
+            try {
+              bookmarks.push({
+                url: node.url,
+                title: node.title || node.url,
+                folder: folderPath.join(' > ') || 'Root',
+                dateAdded: node.dateAdded,
+                domain: new URL(node.url).hostname.replace(/^www\./, ''),
+                visitCount: 1,
+                lastVisit: node.dateAdded
+              });
+            } catch (e) {
+              console.warn('Invalid bookmark URL:', node.url);
+            }
+          } else if (node.children) {
+            // It's a folder
+            const newPath = node.title ? [...folderPath, node.title] : folderPath;
+            collectBookmarks(node.children, newPath);
+          }
+        });
+      };
+
+      collectBookmarks(bookmarkTree);
+
+      // Sort by folder, then by date added
+      bookmarks.sort((a, b) => {
+        if (a.folder !== b.folder) {
+          return a.folder.localeCompare(b.folder);
+        }
+        return b.dateAdded - a.dateAdded;
+      });
+
+      // Render with folder headers
+      urlList.innerHTML = '';
+      let currentFolder = null;
+      let itemCount = 0;
+
+      bookmarks.forEach(bookmark => {
+        // Add folder header if it's a new folder
+        if (bookmark.folder !== currentFolder) {
+          currentFolder = bookmark.folder;
+          const folderHeader = document.createElement('div');
+          folderHeader.className = 'date-group-header';
+          folderHeader.textContent = currentFolder;
+          urlList.appendChild(folderHeader);
+        }
+
+        // Add bookmark item
+        const urlItem = this.createUrlItem(bookmark, bookmark.domain, bookmark.date || '');
+        urlList.appendChild(urlItem);
+        itemCount++;
+      });
+
+      // Update title with count
+      expandedTitle.textContent = `Bookmarks (${itemCount} total)`;
+
+      // Remove any existing pagination (bookmarks show all items)
+      const pagination = document.getElementById('pagination');
+      if (pagination) {
+        pagination.remove();
+      }
+
+      expandedView.style.display = 'block';
+    });
+  }
+
+  // Show frequently visited pages
+  showFrequentlyVisited() {
+    const expandedView = document.getElementById('expandedView');
+    const expandedTitle = document.getElementById('expandedTitle');
+
+    this.expandedViewType = 'frequent';
+    this.currentDomain = null;
+
+    expandedTitle.textContent = 'Frequently Visited';
+
+    // Remove navigation and delete button if they exist
+    const navContainer = document.getElementById('expandedNav');
+    if (navContainer) navContainer.remove();
+    const deleteBtn = document.getElementById('deleteDomain');
+    if (deleteBtn) deleteBtn.remove();
+
+    // Collect all URLs with visit counts
+    const urlVisits = new Map();
+
+    Object.keys(this.historyData).forEach(domain => {
+      Object.keys(this.historyData[domain].days).forEach(dateStr => {
+        const dayData = this.historyData[domain].days[dateStr];
+        dayData.urls.forEach(urlData => {
+          const existing = urlVisits.get(urlData.url);
+          if (existing) {
+            existing.visitCount += urlData.visitCount;
+            existing.lastVisit = Math.max(existing.lastVisit, urlData.lastVisit);
+          } else {
+            urlVisits.set(urlData.url, {
+              url: urlData.url,
+              title: urlData.title,
+              visitCount: urlData.visitCount,
+              lastVisit: urlData.lastVisit,
+              domain: domain,
+              date: dateStr
+            });
+          }
+        });
+      });
+    });
+
+    // Convert to array and sort by visit count
+    const frequentUrls = Array.from(urlVisits.values());
+    frequentUrls.sort((a, b) => b.visitCount - a.visitCount);
+
+    this.expandedUrls = frequentUrls;
+    this.renderUrlList();
+
+    expandedView.style.display = 'block';
+  }
+
+  // Show recently closed tabs with restore functionality
+  showRecentlyClosed() {
+    const expandedView = document.getElementById('expandedView');
+    const expandedTitle = document.getElementById('expandedTitle');
+    const urlList = document.getElementById('urlList');
+
+    this.expandedViewType = 'closed';
+    this.currentDomain = null;
+
+    expandedTitle.textContent = 'Recently Closed';
+
+    // Remove navigation and delete button if they exist
+    const navContainer = document.getElementById('expandedNav');
+    if (navContainer) navContainer.remove();
+    const deleteBtn = document.getElementById('deleteDomain');
+    if (deleteBtn) deleteBtn.remove();
+
+    // Get recently closed sessions
+    chrome.sessions.getRecentlyClosed({ maxResults: 25 }, (sessions) => {
+      console.log('Recently closed sessions:', sessions);
+
+      if (sessions.length === 0) {
+        urlList.innerHTML = '<div style="padding: 16px 20px; color: #999; text-align: center;">No recently closed tabs.</div>';
+        expandedTitle.textContent = 'Recently Closed (0)';
+
+        const pagination = document.getElementById('pagination');
+        if (pagination) pagination.remove();
+
+        expandedView.style.display = 'block';
+        return;
+      }
+
+      // Get recent history to match with sessions
+      // Look back 7 days to catch all sessions
+      const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+
+      chrome.history.search({
+        text: '',
+        startTime: sevenDaysAgo,
+        maxResults: 10000
+      }, (historyItems) => {
+        console.log('History items for matching:', historyItems.length);
+
+        // Create a map of timestamp -> history item for quick lookup
+        const historyMap = new Map();
+        historyItems.forEach(item => {
+          historyMap.set(item.lastVisitTime, item);
+        });
+
+        urlList.innerHTML = '';
+        let itemCount = 0;
+
+        sessions.forEach(session => {
+          console.log('Session:', session);
+
+          let matchedHistory = null;
+
+          // Try to find matching history item by timestamp (within 1 second)
+          const sessionTime = session.lastModified;
+          for (let offset = -1000; offset <= 1000; offset += 100) {
+            const checkTime = sessionTime + offset;
+            if (historyMap.has(checkTime)) {
+              matchedHistory = historyMap.get(checkTime);
+              break;
+            }
+          }
+
+          if (session.tab) {
+            console.log('Tab data:', session.tab);
+            console.log('Matched history:', matchedHistory);
+
+            // It's a single tab
+            const item = this.createClosedSessionItem(session, 'tab', matchedHistory);
+            if (item) {
+              urlList.appendChild(item);
+              itemCount++;
+            }
+          } else if (session.window) {
+            console.log('Window data:', session.window);
+
+            // It's a window with multiple tabs
+            const item = this.createClosedSessionItem(session, 'window', null);
+            if (item) {
+              urlList.appendChild(item);
+              itemCount++;
+            }
+          }
+        });
+
+        expandedTitle.textContent = `Recently Closed (${itemCount})`;
+
+        // Remove pagination (sessions are limited to 25)
+        const pagination = document.getElementById('pagination');
+        if (pagination) pagination.remove();
+
+        expandedView.style.display = 'block';
+      });
+    });
+  }
+
+  // Create a closed session item (tab or window)
+  createClosedSessionItem(session, type, matchedHistory) {
+    const item = document.createElement('div');
+    item.className = 'url-item';
+
+    // Left side: restore button
+    const leftDiv = document.createElement('div');
+    leftDiv.className = 'url-item-left';
+
+    const restoreBtn = document.createElement('button');
+    restoreBtn.className = 'icon-btn restore';
+    restoreBtn.textContent = 'restore';
+    restoreBtn.title = 'Restore this tab/window';
+    restoreBtn.addEventListener('click', () => {
+      const sessionId = session.tab?.sessionId || session.window?.sessionId;
+      chrome.sessions.restore(sessionId, () => {
+        // Refresh the list after restoring
+        this.showRecentlyClosed();
+      });
+    });
+
+    leftDiv.appendChild(restoreBtn);
+
+    // Right side: Favicon + Title/URL info
+    const rightDiv = document.createElement('div');
+    rightDiv.className = 'url-item-right';
+
+    if (type === 'tab' && matchedHistory) {
+      // Add favicon
+      const favicon = document.createElement('img');
+      favicon.className = 'url-favicon';
+      favicon.src = `https://www.google.com/s2/favicons?domain=${matchedHistory.url}&sz=16`;
+      favicon.alt = '';
+      favicon.width = 16;
+      favicon.height = 16;
+
+      // Show title or URL
+      const text = document.createElement('span');
+      text.textContent = matchedHistory.title || matchedHistory.url;
+      text.style.color = '#555';
+
+      rightDiv.appendChild(favicon);
+      rightDiv.appendChild(text);
+    } else if (type === 'tab') {
+      // No matched history - show generic tab info
+      const text = document.createElement('span');
+      text.textContent = 'Closed tab (no history match)';
+      text.style.color = '#999';
+      rightDiv.appendChild(text);
+    } else if (type === 'window' && session.window) {
+      // Window - show tab count
+      const tabCount = session.window.tabs.length;
+      const text = document.createElement('span');
+      text.textContent = `Window with ${tabCount} tab${tabCount !== 1 ? 's' : ''}`;
+      text.style.color = '#555';
+      text.style.fontWeight = '500';
+      rightDiv.appendChild(text);
+    } else {
+      return null; // Skip if we can't display it
+    }
+
+    item.appendChild(leftDiv);
+    item.appendChild(rightDiv);
+
+    return item;
   }
 }
 
