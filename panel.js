@@ -1575,7 +1575,7 @@ class BulletHistory {
       // Refresh the grid
       this.updateVirtualGrid();
 
-      // Update expanded view if it's open for this domain
+      // Update expanded view based on what's currently open
       if (this.expandedViewType === 'domain' && this.currentDomain === domain) {
         this.showDomainView(domain);
       } else if (this.expandedViewType === 'cell' && this.selectedCell) {
@@ -1587,7 +1587,17 @@ class BulletHistory {
           const dayData = this.historyData[domain].days[visitDate];
           this.showExpandedView(domain, visitDate, dayData.count);
         }
+      } else if (this.expandedViewType === 'recent') {
+        // Refresh recent history view
+        this.showRecentHistory();
+      } else if (this.expandedViewType === 'frequent') {
+        // Refresh frequently visited view
+        this.showFrequentlyVisited();
+      } else if (this.expandedViewType === 'full') {
+        // Refresh full history view
+        this.showFullHistory();
       }
+      // Note: bookmarks and closed tabs don't need live updates from history
 
       console.log(`Live update: ${domain} visited (${visitDate})`);
     } catch (e) {
