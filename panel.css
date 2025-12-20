@@ -101,7 +101,7 @@ body {
 
 .date-header-inner {
   padding-left: 8px;
-  padding-right: 8px;
+  padding-right: 10px;
   min-width: fit-content;
   display: flex;
   flex-direction: column;
@@ -219,6 +219,23 @@ body {
   height: 18px;
   width: 100%;
   min-height: 18px;
+  position: relative;
+}
+
+.cell-row.has-today-col::before {
+  content: '';
+  position: absolute;
+  top: -1.5px;
+  bottom: -1.5px;
+  left: var(--today-col-left);
+  width: 21px;
+  background: rgba(101, 147, 185, 0.08);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.cell-row.has-today-col.first-row-today::before {
+  top: -11.5px;
 }
 
 .virtual-spacer {
@@ -238,6 +255,7 @@ body {
   position: relative;
   transition: transform 0.1s ease;
   background: #fff;
+  z-index: 2;
 }
 
 .cell:hover {
@@ -262,17 +280,6 @@ body {
   pointer-events: none;
 }
 
-.cell.col-today::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: rgba(33, 150, 243, 0.08);
-  top: -4.5px;
-  pointer-events: none;
-  z-index: 1;
-}
 
 /* Tooltip */
 .tooltip {

@@ -528,6 +528,7 @@ class BulletHistory {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayStr = this.formatDate(today);
+    const todayIndex = this.dates.indexOf(todayStr);
 
     // Find max visit count for saturation calculation
     let maxCount = 0;
@@ -560,6 +561,17 @@ class BulletHistory {
       cellRow.style.top = `${rowIndex * this.rowHeight + 8}px`; // Add 8px padding
       cellRow.style.left = '0';
       cellRow.style.width = `${this.dates.length * this.colWidth + 16}px`; // Full width of all dates + padding
+
+      // Add today column highlight
+      if (todayIndex !== -1) {
+        cellRow.classList.add('has-today-col');
+        // Add special class for first row to extend highlight upward
+        if (rowIndex === startRow) {
+          cellRow.classList.add('first-row-today');
+        }
+        const todayColLeft = todayIndex * this.colWidth + 8 - 1.5; // Position to center the 21px highlight
+        cellRow.style.setProperty('--today-col-left', `${todayColLeft}px`);
+      }
 
       // Render visible columns
       for (let colIndex = startCol; colIndex < endCol; colIndex++) {
