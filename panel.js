@@ -71,6 +71,9 @@ class BulletHistory {
 
     // Show full history by default
     this.showFullHistory();
+
+    // Scroll to show today (not future days)
+    this.scrollToToday();
   }
 
   // Generate date range from first to last history date
@@ -85,9 +88,10 @@ class BulletHistory {
       }
     }
 
-    // Always show through today
+    // Always show through today + 1 week
     const latestDate = new Date();
     latestDate.setHours(0, 0, 0, 0);
+    latestDate.setDate(latestDate.getDate() + 7); // Add next week
 
     // If no history, show last 30 days
     if (!Object.keys(this.historyData).length) {
@@ -95,7 +99,10 @@ class BulletHistory {
       earliestDate.setDate(earliestDate.getDate() - 30);
     }
 
-    // Generate all dates between earliest and today
+    // Extend earliest date by 1 week
+    earliestDate.setDate(earliestDate.getDate() - 7); // Add previous week
+
+    // Generate all dates between (earliest - 1 week) and (today + 1 week)
     this.dates = [];
     const current = new Date(earliestDate);
     current.setHours(0, 0, 0, 0);
@@ -339,6 +346,11 @@ class BulletHistory {
     let currentMonth = '';
     let monthSpan = 0;
 
+    // Get today's date string for comparison
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = this.formatDate(today);
+
     this.dates.forEach((dateStr, index) => {
       const date = new Date(dateStr + 'T00:00:00'); // Add time to avoid timezone issues
 
@@ -353,6 +365,9 @@ class BulletHistory {
       const monthYearKey = `${monthName} ${year}`;
       const dayNum = date.getDate();
       const weekdayName = date.toLocaleString('en-US', { weekday: 'short' }).charAt(0);
+
+      // Check if this is today
+      const isToday = dateStr === todayStr;
 
       // Debug first few dates
       if (index < 3 || index > this.dates.length - 3) {
@@ -378,6 +393,7 @@ class BulletHistory {
       // Weekday letter
       const weekdayCell = document.createElement('div');
       weekdayCell.className = 'weekday-cell';
+      if (isToday) weekdayCell.classList.add('col-today');
       weekdayCell.textContent = weekdayName;
       weekdayCell.dataset.colIndex = index;
       weekdayRow.appendChild(weekdayCell);
@@ -385,6 +401,7 @@ class BulletHistory {
       // Day number
       const dayCell = document.createElement('div');
       dayCell.className = 'day-cell';
+      if (isToday) dayCell.classList.add('col-today');
       dayCell.textContent = dayNum;
       dayCell.dataset.colIndex = index;
       dayRow.appendChild(dayCell);
@@ -507,6 +524,11 @@ class BulletHistory {
     tldColumn.appendChild(tldSpacer);
     cellGrid.appendChild(cellSpacer);
 
+    // Get today's date string for comparison
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = this.formatDate(today);
+
     // Find max visit count for saturation calculation
     let maxCount = 0;
     this.sortedDomains.forEach(domain => {
@@ -552,6 +574,11 @@ class BulletHistory {
         cell.dataset.rowIndex = rowIndex;
         cell.style.position = 'absolute';
         cell.style.left = `${colIndex * this.colWidth + 8}px`; // Add left padding
+
+        // Check if this is today's column
+        if (dateStr === todayStr) {
+          cell.classList.add('col-today');
+        }
 
         const dayData = this.historyData[domain].days[dateStr];
 
@@ -1818,6 +1845,29 @@ class BulletHistory {
     });
   }
 
+  // Scroll to show tomorrow on load
+  scrollToToday() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = this.formatDate(today);
+    const todayIndex = this.dates.indexOf(todayStr);
+
+    if (todayIndex !== -1) {
+      const cellGridWrapper = document.getElementById('cellGridWrapper');
+      const dateHeader = document.getElementById('dateHeader');
+
+      // Calculate scroll position to show tomorrow (todayIndex + 1) at the right edge
+      // This means today is visible, plus one day into the future
+      const scrollLeft = (todayIndex + 2) * this.colWidth - cellGridWrapper.clientWidth;
+
+      // Ensure we don't scroll past the end or before the beginning
+      const maxScroll = Math.max(0, scrollLeft);
+
+      cellGridWrapper.scrollLeft = maxScroll;
+      dateHeader.scrollLeft = maxScroll;
+    }
+  }
+
   // Setup zoom controls (Command+/Command-)
   setupZoomControls() {
     let currentZoom = 1.0;
@@ -1878,7 +1928,7 @@ class BulletHistory {
       recentUrls.sort((a, b) => b.lastVisit - a.lastVisit);
 
       this.expandedUrls = recentUrls;
-      expandedTitle.textContent = `Recent History (${recentUrls.length})`;
+      expandedTitle.textContent = `Recent History (${recentUrls.length} total)`;
       this.renderUrlList();
 
       expandedView.style.display = 'block';
@@ -2022,7 +2072,7 @@ class BulletHistory {
     frequentUrls.sort((a, b) => b.visitCount - a.visitCount);
 
     this.expandedUrls = frequentUrls;
-    expandedTitle.textContent = `Frequently Visited (${frequentUrls.length})`;
+    expandedTitle.textContent = `Frequently Visited (${frequentUrls.length} total)`;
     this.renderUrlList();
 
     expandedView.style.display = 'block';
@@ -2067,7 +2117,7 @@ class BulletHistory {
         urlList.appendChild(item);
       });
 
-      expandedTitle.textContent = `Recently Closed (${closedTabs.length})`;
+      expandedTitle.textContent = `Recently Closed (${closedTabs.length} total)`;
 
       const pagination = document.getElementById('pagination');
       if (pagination) pagination.remove();
