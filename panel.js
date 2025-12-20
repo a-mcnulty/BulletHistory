@@ -28,6 +28,9 @@ class BulletHistory {
     this.fakeDomainCount = 100; // Number of domains to generate
     this.fakeDaysBack = 365; // Days of history to generate
 
+    // Open Graph metadata cache (title and description only, no images)
+    this.ogCache = new Map();
+
     this.init();
   }
 
@@ -102,8 +105,6 @@ class BulletHistory {
       current.setDate(current.getDate() + 1);
     }
 
-    console.log('Generated dates:', this.dates);
-    console.log(`Showing ${this.dates.length} days of history`);
   }
 
   formatDate(date) {
@@ -199,14 +200,12 @@ class BulletHistory {
       }
     }
 
-    console.log(`Generated fake history: ${fakeDomains.length} domains, ${this.fakeDaysBack} days`);
   }
 
   // Parse history into domain/day structure
   parseHistory(results) {
     this.historyData = {};
 
-    console.log(`Parsing ${results.length} history items`);
 
     for (const item of results) {
       try {
@@ -265,7 +264,6 @@ class BulletHistory {
         allDates.add(date);
       }
     }
-    console.log('Dates with history data:', Array.from(allDates).sort());
 
     this.saveColors();
   }
@@ -358,7 +356,6 @@ class BulletHistory {
 
       // Debug first few dates
       if (index < 3 || index > this.dates.length - 3) {
-        console.log(`Date ${index}: ${dateStr} -> day ${dayNum}, ${weekdayName}`);
       }
 
       // Month header (only show when month changes)
@@ -480,7 +477,6 @@ class BulletHistory {
       Math.ceil((scrollLeft + viewportWidth) / this.colWidth) + this.colBuffer
     );
 
-    console.log(`updateVirtualGrid: rows ${startRow}-${endRow}, cols ${startCol}-${endCol}`);
 
     // Only update if range changed
     if (
@@ -489,7 +485,6 @@ class BulletHistory {
       startCol === this.virtualState.startCol &&
       endCol === this.virtualState.endCol
     ) {
-      console.log('Range unchanged, skipping render');
       return;
     }
 
@@ -497,7 +492,6 @@ class BulletHistory {
 
     // Render visible rows
     this.renderVirtualRows(startRow, endRow, startCol, endCol);
-    console.log(`Rendered rows ${startRow}-${endRow}`);
   }
 
   // Render only visible rows
@@ -1273,7 +1267,7 @@ class BulletHistory {
   }
 
   // Show URL preview tooltip
-  showUrlPreview(urlData, event) {
+  async showUrlPreview(urlData, event) {
     const previewTooltip = document.getElementById('urlPreviewTooltip');
 
     // Format last visit date
@@ -1297,35 +1291,72 @@ class BulletHistory {
       timeAgo = lastVisitDate.toLocaleDateString();
     }
 
-    // Determine if this is from recently closed view (visitCount = 1 usually means closed tab)
+    // Determine if this is from recently closed view
     const isClosedTab = this.expandedViewType === 'closed';
     const timeLabel = isClosedTab ? 'Closed' : 'Last visited';
 
-    // Build preview content
+    // Show loading state first
     previewTooltip.innerHTML = `
-      <div class="url-preview-header">
-        <img src="https://www.google.com/s2/favicons?domain=${urlData.url}&sz=32"
-             class="url-preview-favicon"
-             width="32"
-             height="32"
-             alt="">
-        <div class="url-preview-title">${urlData.title || 'Untitled'}</div>
-      </div>
-      <div class="url-preview-url">${urlData.url}</div>
-      <div class="url-preview-meta">
-        ${isClosedTab ? '' : `<div class="url-preview-meta-item">
-          <span class="url-preview-meta-label">Visits</span>
-          <span class="url-preview-meta-value">${urlData.visitCount}</span>
-        </div>`}
-        <div class="url-preview-meta-item">
-          <span class="url-preview-meta-label">${timeLabel}</span>
-          <span class="url-preview-meta-value">${timeAgo}</span>
+      <div class="url-preview-content">
+        <div class="url-preview-header">
+          <img src="https://www.google.com/s2/favicons?domain=${urlData.url}&sz=32"
+               class="url-preview-favicon"
+               width="32"
+               height="32"
+               alt="">
+          <div class="url-preview-title">${urlData.title || 'Untitled'}</div>
+        </div>
+        <div class="url-preview-url">${urlData.url}</div>
+        <div class="url-preview-meta">
+          ${isClosedTab ? '' : `<div class="url-preview-meta-item">
+            <span class="url-preview-meta-label">Visits</span>
+            <span class="url-preview-meta-value">${urlData.visitCount}</span>
+          </div>`}
+          <div class="url-preview-meta-item">
+            <span class="url-preview-meta-label">${timeLabel}</span>
+            <span class="url-preview-meta-value">${timeAgo}</span>
+          </div>
         </div>
       </div>
     `;
 
     this.positionUrlPreview(event);
     previewTooltip.classList.add('visible');
+
+    // Fetch OG metadata (title and description only)
+    const ogData = await this.fetchOpenGraphData(urlData.url);
+
+    // Update with OG data if available
+    const descriptionHtml = ogData.description ? `
+      <div class="url-preview-description">${ogData.description}</div>
+    ` : '';
+
+    previewTooltip.innerHTML = `
+      <div class="url-preview-content">
+        <div class="url-preview-header">
+          <img src="https://www.google.com/s2/favicons?domain=${urlData.url}&sz=32"
+               class="url-preview-favicon"
+               width="32"
+               height="32"
+               alt="">
+          <div class="url-preview-title">${ogData.title || urlData.title || 'Untitled'}</div>
+        </div>
+        ${descriptionHtml}
+        <div class="url-preview-url">${urlData.url}</div>
+        <div class="url-preview-meta">
+          ${isClosedTab ? '' : `<div class="url-preview-meta-item">
+            <span class="url-preview-meta-label">Visits</span>
+            <span class="url-preview-meta-value">${urlData.visitCount}</span>
+          </div>`}
+          <div class="url-preview-meta-item">
+            <span class="url-preview-meta-label">${timeLabel}</span>
+            <span class="url-preview-meta-value">${timeAgo}</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    this.positionUrlPreview(event);
   }
 
   // Position the URL preview tooltip
@@ -1351,6 +1382,61 @@ class BulletHistory {
 
     previewTooltip.style.left = `${x}px`;
     previewTooltip.style.top = `${y}px`;
+  }
+
+  // Fetch Open Graph metadata (title and description only, no images)
+  async fetchOpenGraphData(url) {
+    // Check cache first
+    if (this.ogCache.has(url)) {
+      return this.ogCache.get(url);
+    }
+
+    // Default empty data
+    const defaultData = {
+      title: null,
+      description: null
+    };
+
+    try {
+      // Fetch the HTML page
+      const response = await fetch(url, {
+        method: 'GET',
+        mode: 'cors',
+        cache: 'default'
+      });
+
+      if (!response.ok) {
+        this.ogCache.set(url, defaultData);
+        return defaultData;
+      }
+
+      const html = await response.text();
+
+      // Parse OG meta tags
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+
+      const ogData = {
+        title: this.getMetaContent(doc, 'og:title') || this.getMetaContent(doc, 'twitter:title'),
+        description: this.getMetaContent(doc, 'og:description') || this.getMetaContent(doc, 'twitter:description') || this.getMetaContent(doc, 'description')
+      };
+
+      // Cache the result
+      this.ogCache.set(url, ogData);
+
+      return ogData;
+    } catch (error) {
+      // CORS blocked or other error - cache empty data
+      this.ogCache.set(url, defaultData);
+      return defaultData;
+    }
+  }
+
+  // Helper to extract meta tag content
+  getMetaContent(doc, property) {
+    const meta = doc.querySelector(`meta[property="${property}"]`) ||
+                 doc.querySelector(`meta[name="${property}"]`);
+    return meta ? meta.getAttribute('content') : null;
   }
 
   // Close expanded view
@@ -1428,7 +1514,6 @@ class BulletHistory {
   async deleteUrl(url, domain, date) {
     // Delete from Chrome history
     chrome.history.deleteUrl({ url: url }, () => {
-      console.log(`Deleted: ${url}`);
 
       // Update local data
       const dayData = this.historyData[domain].days[date];
@@ -1495,7 +1580,6 @@ class BulletHistory {
 
         // When all URLs are deleted, update UI
         if (deletedCount === allUrls.length) {
-          console.log(`Deleted all ${deletedCount} URLs for ${domain}`);
 
           // Remove domain from local data
           delete this.historyData[domain];
@@ -1526,7 +1610,6 @@ class BulletHistory {
     if (bookmarkId) {
       // Remove bookmark
       chrome.bookmarks.remove(bookmarkId, () => {
-        console.log(`Removed bookmark: ${url}`);
         bookmarkBtn.classList.remove('saved');
         delete bookmarkBtn.dataset.bookmarkId;
       });
@@ -1536,7 +1619,6 @@ class BulletHistory {
         title: title || url,
         url: url
       }, (bookmark) => {
-        console.log(`Bookmarked: ${url}`);
         bookmarkBtn.classList.add('saved');
         bookmarkBtn.dataset.bookmarkId = bookmark.id;
       });
@@ -1589,30 +1671,23 @@ class BulletHistory {
   setupLiveUpdates() {
     // Don't set up live updates for fake data
     if (this.useFakeData) {
-      console.log('Live updates disabled (fake data mode)');
       return;
     }
 
-    console.log('Setting up live updates...');
-
     // Listen for new history visits
     chrome.history.onVisited.addListener((historyItem) => {
-      console.log('New visit detected:', historyItem.url);
       this.handleNewVisit(historyItem);
     });
 
     // Listen for storage changes (recently closed tabs)
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area === 'local' && changes.closedTabs) {
-        console.log('Closed tabs updated');
         // If we're currently viewing recently closed, refresh it
         if (this.expandedViewType === 'closed') {
           this.showRecentlyClosed();
         }
       }
     });
-
-    console.log('Live updates listener registered');
   }
 
   // Handle a new visit from chrome.history.onVisited
@@ -1719,7 +1794,6 @@ class BulletHistory {
       }
       // Note: bookmarks and closed tabs don't need live updates from history
 
-      console.log(`Live update: ${domain} visited (${visitDate})`);
     } catch (e) {
       console.warn('Invalid URL in live update:', historyItem.url);
     }
@@ -1765,7 +1839,6 @@ class BulletHistory {
         }
 
         document.body.style.zoom = currentZoom;
-        console.log('Zoom level:', currentZoom);
       }
     });
   }
