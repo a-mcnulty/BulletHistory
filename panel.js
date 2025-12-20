@@ -1878,6 +1878,7 @@ class BulletHistory {
       recentUrls.sort((a, b) => b.lastVisit - a.lastVisit);
 
       this.expandedUrls = recentUrls;
+      expandedTitle.textContent = `Recent History (${recentUrls.length})`;
       this.renderUrlList();
 
       expandedView.style.display = 'block';
@@ -2021,6 +2022,7 @@ class BulletHistory {
     frequentUrls.sort((a, b) => b.visitCount - a.visitCount);
 
     this.expandedUrls = frequentUrls;
+    expandedTitle.textContent = `Frequently Visited (${frequentUrls.length})`;
     this.renderUrlList();
 
     expandedView.style.display = 'block';

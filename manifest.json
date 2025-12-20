@@ -3,6 +3,11 @@
   "name": "Bullet History",
   "version": "1.0.0",
   "description": "Visual bullet journal for browsing history",
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
   "permissions": [
     "history",
     "browsingData",
@@ -16,7 +21,12 @@
     "default_path": "panel.html"
   },
   "action": {
-    "default_title": "Open Bullet History"
+    "default_title": "Open Bullet History",
+    "default_icon": {
+      "16": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    }
   },
   "background": {
     "service_worker": "background.js"
