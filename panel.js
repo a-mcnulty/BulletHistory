@@ -914,7 +914,7 @@ class BulletHistory {
     });
 
     // Set title
-    expandedTitle.textContent = `Full History (${totalVisits} total visit${totalVisits !== 1 ? 's' : ''})`;
+    expandedTitle.textContent = `Full History (${totalVisits} total)`;
 
     // Remove navigation and delete button if they exist
     const navContainer = document.getElementById('expandedNav');
@@ -1121,10 +1121,32 @@ class BulletHistory {
     expandedView.style.display = 'block';
   }
 
+  // Get the display name for the current view type
+  getViewName() {
+    switch (this.expandedViewType) {
+      case 'full':
+      case 'recent':
+        return 'Full History';
+      case 'bookmarks':
+        return 'Bookmarks';
+      case 'frequent':
+        return 'Frequently Visited';
+      case 'closed':
+        return 'Recently Closed';
+      case 'domain':
+        return this.currentDomain || 'Domain';
+      case 'cell':
+        return this.selectedCell?.dataset.domain || 'History';
+      default:
+        return 'History';
+    }
+  }
+
   // Render URL list with pagination
   renderUrlList() {
     const urlList = document.getElementById('urlList');
     const expandedView = document.getElementById('expandedView');
+    const expandedTitle = document.getElementById('expandedTitle');
 
     // Filter URLs based on search filter
     let filteredUrls = this.expandedUrls;
@@ -1136,6 +1158,15 @@ class BulletHistory {
         const title = urlData.title?.toLowerCase() || '';
         return domain.includes(filterLower) || url.includes(filterLower) || title.includes(filterLower);
       });
+    }
+
+    // Update title with filtered count
+    if (this.searchFilter && filteredUrls.length !== this.expandedUrls.length) {
+      const viewName = this.getViewName();
+      expandedTitle.textContent = `${viewName} (${filteredUrls.length} found)`;
+    } else {
+      const viewName = this.getViewName();
+      expandedTitle.textContent = `${viewName} (${this.expandedUrls.length} total)`;
     }
 
     // Get current page for this view type
@@ -1703,16 +1734,14 @@ class BulletHistory {
 
       // Re-open the expanded view if it was open
       if (wasOpen) {
-        if (viewType === 'recent') {
-          this.showRecentHistory();
+        if (viewType === 'recent' || viewType === 'full') {
+          this.showFullHistory();
         } else if (viewType === 'bookmarks') {
           this.showBookmarks();
         } else if (viewType === 'frequent') {
           this.showFrequentlyVisited();
         } else if (viewType === 'closed') {
           this.showRecentlyClosed();
-        } else if (viewType === 'full') {
-          this.showFullHistory();
         }
         // Note: We don't re-open 'cell' or 'domain' views since filtering changes which domains are visible
       }
@@ -1856,15 +1885,12 @@ class BulletHistory {
           const dayData = this.historyData[domain].days[visitDate];
           this.showExpandedView(domain, visitDate, dayData.count);
         }
-      } else if (this.expandedViewType === 'recent') {
-        // Refresh recent history view
-        this.showRecentHistory();
+      } else if (this.expandedViewType === 'recent' || this.expandedViewType === 'full') {
+        // Refresh full history view
+        this.showFullHistory();
       } else if (this.expandedViewType === 'frequent') {
         // Refresh frequently visited view
         this.showFrequentlyVisited();
-      } else if (this.expandedViewType === 'full') {
-        // Refresh full history view
-        this.showFullHistory();
       }
       // Note: bookmarks and closed tabs don't need live updates from history
 
@@ -1876,7 +1902,7 @@ class BulletHistory {
   // Setup bottom menu buttons
   setupBottomMenu() {
     document.getElementById('recentHistoryBtn').addEventListener('click', () => {
-      this.showRecentHistory();
+      this.showFullHistory();
     });
 
     document.getElementById('bookmarksBtn').addEventListener('click', () => {
@@ -2121,43 +2147,13 @@ class BulletHistory {
 
       collectBookmarks(bookmarkTree);
 
-      // Sort by folder, then by date added
-      bookmarks.sort((a, b) => {
-        if (a.folder !== b.folder) {
-          return a.folder.localeCompare(b.folder);
-        }
-        return b.dateAdded - a.dateAdded;
-      });
+      // Sort by date added (most recent first)
+      bookmarks.sort((a, b) => b.dateAdded - a.dateAdded);
 
-      // Render with folder headers
-      urlList.innerHTML = '';
-      let currentFolder = null;
-      let itemCount = 0;
-
-      bookmarks.forEach(bookmark => {
-        // Add folder header if it's a new folder
-        if (bookmark.folder !== currentFolder) {
-          currentFolder = bookmark.folder;
-          const folderHeader = document.createElement('div');
-          folderHeader.className = 'date-group-header';
-          folderHeader.textContent = currentFolder;
-          urlList.appendChild(folderHeader);
-        }
-
-        // Add bookmark item
-        const urlItem = this.createUrlItem(bookmark, bookmark.domain, bookmark.date || '');
-        urlList.appendChild(urlItem);
-        itemCount++;
-      });
-
-      // Update title with count
-      expandedTitle.textContent = `Bookmarks (${itemCount} total)`;
-
-      // Remove any existing pagination (bookmarks show all items)
-      const pagination = document.getElementById('pagination');
-      if (pagination) {
-        pagination.remove();
-      }
+      // Store bookmarks and render with filtering
+      this.expandedUrls = bookmarks;
+      expandedTitle.textContent = `Bookmarks (${bookmarks.length} total)`;
+      this.renderUrlList();
 
       expandedView.style.display = 'block';
     });
@@ -2219,7 +2215,6 @@ class BulletHistory {
   showRecentlyClosed() {
     const expandedView = document.getElementById('expandedView');
     const expandedTitle = document.getElementById('expandedTitle');
-    const urlList = document.getElementById('urlList');
 
     this.expandedViewType = 'closed';
     this.currentDomain = null;
@@ -2236,30 +2231,36 @@ class BulletHistory {
     chrome.storage.local.get(['closedTabs'], (result) => {
       const closedTabs = result.closedTabs || [];
 
-      if (closedTabs.length === 0) {
-        urlList.innerHTML = '<div style="padding: 16px 20px; color: #999; text-align: center;">No recently closed tabs.<br><span style="font-size: 10px; margin-top: 8px; display: block;">Close some tabs to see them appear here.</span></div>';
-        expandedTitle.textContent = 'Recently Closed (0)';
-
-        const pagination = document.getElementById('pagination');
-        if (pagination) pagination.remove();
-
-        expandedView.style.display = 'block';
-        return;
-      }
-
-      urlList.innerHTML = '';
-
-      closedTabs.forEach((tabData, index) => {
-        const item = this.createClosedTabItem(tabData, index);
-        urlList.appendChild(item);
+      // Convert to URL format and add domain
+      const closedUrls = closedTabs.map(tabData => {
+        try {
+          return {
+            url: tabData.url,
+            title: tabData.title,
+            favIconUrl: tabData.favIconUrl,
+            closedAt: tabData.closedAt,
+            domain: new URL(tabData.url).hostname.replace(/^www\./, ''),
+            visitCount: 1,
+            lastVisit: tabData.closedAt
+          };
+        } catch (e) {
+          return {
+            url: tabData.url,
+            title: tabData.title,
+            favIconUrl: tabData.favIconUrl,
+            closedAt: tabData.closedAt,
+            domain: tabData.url,
+            visitCount: 1,
+            lastVisit: tabData.closedAt
+          };
+        }
       });
 
-      expandedTitle.textContent = `Recently Closed (${closedTabs.length} total)`;
+      this.expandedUrls = closedUrls;
+      expandedTitle.textContent = `Recently Closed (${closedUrls.length} total)`;
+      this.renderUrlList();
 
-      const pagination = document.getElementById('pagination');
-      if (pagination) pagination.remove();
-
-      expandedView.style.display = 'flex';
+      expandedView.style.display = 'block';
     });
   }
 
