@@ -68,6 +68,7 @@ class BulletHistory {
     this.setupSearchInput();
     this.setupBottomMenu();
     this.setupZoomControls();
+    this.setupResizeHandle();
 
     // Show full history by default
     this.showFullHistory();
@@ -550,7 +551,7 @@ class BulletHistory {
       tldRow.dataset.rowIndex = rowIndex;
       tldRow.style.position = 'absolute';
       tldRow.style.top = `${rowIndex * this.rowHeight + 8}px`; // Add 8px padding
-      tldRow.style.width = '150px';
+      tldRow.style.width = '100%';
       tldColumn.appendChild(tldRow);
 
       // Cell row
@@ -1901,6 +1902,54 @@ class BulletHistory {
         }
 
         document.body.style.zoom = currentZoom;
+      }
+    });
+  }
+
+  // Setup resize handle for TLD column
+  setupResizeHandle() {
+    const handle = document.getElementById('tldResizeHandle');
+    const tldColumn = document.getElementById('tldColumn');
+    const headerSpacer = document.querySelector('.header-spacer');
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    // Load saved width from storage
+    chrome.storage.local.get(['tldColumnWidth'], (result) => {
+      if (result.tldColumnWidth) {
+        tldColumn.style.width = `${result.tldColumnWidth}px`;
+        headerSpacer.style.width = `${result.tldColumnWidth}px`;
+      }
+    });
+
+    handle.addEventListener('mousedown', (e) => {
+      isResizing = true;
+      startX = e.clientX;
+      startWidth = tldColumn.offsetWidth;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isResizing) return;
+
+      const delta = e.clientX - startX;
+      const newWidth = Math.max(100, Math.min(400, startWidth + delta)); // Min 100px, max 400px
+
+      tldColumn.style.width = `${newWidth}px`;
+      headerSpacer.style.width = `${newWidth}px`;
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (isResizing) {
+        isResizing = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+
+        // Save the new width to storage
+        const newWidth = tldColumn.offsetWidth;
+        chrome.storage.local.set({ tldColumnWidth: newWidth });
       }
     });
   }
