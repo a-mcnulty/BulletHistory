@@ -1126,11 +1126,23 @@ class BulletHistory {
     const urlList = document.getElementById('urlList');
     const expandedView = document.getElementById('expandedView');
 
+    // Filter URLs based on search filter
+    let filteredUrls = this.expandedUrls;
+    if (this.searchFilter) {
+      const filterLower = this.searchFilter.toLowerCase();
+      filteredUrls = this.expandedUrls.filter(urlData => {
+        const domain = urlData.domain?.toLowerCase() || '';
+        const url = urlData.url?.toLowerCase() || '';
+        const title = urlData.title?.toLowerCase() || '';
+        return domain.includes(filterLower) || url.includes(filterLower) || title.includes(filterLower);
+      });
+    }
+
     // Get current page for this view type
     const currentPage = this.viewPagination[this.expandedViewType] || 1;
 
     // Calculate pagination
-    const totalItems = this.expandedUrls.length;
+    const totalItems = filteredUrls.length;
     const totalPages = Math.ceil(totalItems / this.itemsPerPage);
     const startIndex = (currentPage - 1) * this.itemsPerPage;
     const endIndex = Math.min(startIndex + this.itemsPerPage, totalItems);
@@ -1140,7 +1152,7 @@ class BulletHistory {
 
     // Render items for current page
     for (let i = startIndex; i < endIndex; i++) {
-      const urlData = this.expandedUrls[i];
+      const urlData = filteredUrls[i];
       const urlItem = this.createUrlItem(urlData, urlData.domain, urlData.date);
       urlList.appendChild(urlItem);
     }
@@ -1681,7 +1693,29 @@ class BulletHistory {
 
     searchInput.addEventListener('input', (e) => {
       this.searchFilter = e.target.value.trim();
+
+      // Check if expanded view is open and what type
+      const expandedView = document.getElementById('expandedView');
+      const wasOpen = expandedView.style.display === 'block';
+      const viewType = this.expandedViewType;
+
       this.refreshGrid();
+
+      // Re-open the expanded view if it was open
+      if (wasOpen) {
+        if (viewType === 'recent') {
+          this.showRecentHistory();
+        } else if (viewType === 'bookmarks') {
+          this.showBookmarks();
+        } else if (viewType === 'frequent') {
+          this.showFrequentlyVisited();
+        } else if (viewType === 'closed') {
+          this.showRecentlyClosed();
+        } else if (viewType === 'full') {
+          this.showFullHistory();
+        }
+        // Note: We don't re-open 'cell' or 'domain' views since filtering changes which domains are visible
+      }
     });
   }
 
