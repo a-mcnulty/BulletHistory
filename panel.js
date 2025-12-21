@@ -1906,16 +1906,17 @@ class BulletHistory {
     });
   }
 
-  // Setup resize handle for TLD column
+  // Setup resize handles for TLD column and expanded view
   setupResizeHandle() {
-    const handle = document.getElementById('tldResizeHandle');
+    // TLD Column resize
+    const tldHandle = document.getElementById('tldResizeHandle');
     const tldColumn = document.getElementById('tldColumn');
     const headerSpacer = document.querySelector('.header-spacer');
-    let isResizing = false;
+    let isTldResizing = false;
     let startX = 0;
     let startWidth = 0;
 
-    // Load saved width from storage
+    // Load saved TLD width from storage
     chrome.storage.local.get(['tldColumnWidth'], (result) => {
       if (result.tldColumnWidth) {
         tldColumn.style.width = `${result.tldColumnWidth}px`;
@@ -1923,33 +1924,74 @@ class BulletHistory {
       }
     });
 
-    handle.addEventListener('mousedown', (e) => {
-      isResizing = true;
+    tldHandle.addEventListener('mousedown', (e) => {
+      isTldResizing = true;
       startX = e.clientX;
       startWidth = tldColumn.offsetWidth;
       document.body.style.cursor = 'col-resize';
       document.body.style.userSelect = 'none';
     });
 
-    document.addEventListener('mousemove', (e) => {
-      if (!isResizing) return;
+    // Expanded view resize
+    const expandedHandle = document.getElementById('expandedResizeHandle');
+    const expandedView = document.getElementById('expandedView');
+    let isExpandedResizing = false;
+    let startY = 0;
+    let startHeight = 0;
 
-      const delta = e.clientX - startX;
-      const newWidth = Math.max(100, Math.min(400, startWidth + delta)); // Min 100px, max 400px
-
-      tldColumn.style.width = `${newWidth}px`;
-      headerSpacer.style.width = `${newWidth}px`;
+    // Load saved expanded view height from storage
+    chrome.storage.local.get(['expandedViewHeight'], (result) => {
+      if (result.expandedViewHeight) {
+        expandedView.style.maxHeight = `${result.expandedViewHeight}px`;
+      }
     });
 
+    expandedHandle.addEventListener('mousedown', (e) => {
+      isExpandedResizing = true;
+      startY = e.clientY;
+      startHeight = expandedView.offsetHeight;
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
+    });
+
+    // Combined mousemove handler
+    document.addEventListener('mousemove', (e) => {
+      if (isTldResizing) {
+        const delta = e.clientX - startX;
+        const newWidth = Math.max(100, Math.min(400, startWidth + delta)); // Min 100px, max 400px
+
+        tldColumn.style.width = `${newWidth}px`;
+        headerSpacer.style.width = `${newWidth}px`;
+      }
+
+      if (isExpandedResizing) {
+        const delta = startY - e.clientY; // Inverted because dragging up increases height
+        const newHeight = Math.max(150, Math.min(window.innerHeight * 0.8, startHeight + delta)); // Min 150px, max 80vh
+
+        expandedView.style.maxHeight = `${newHeight}px`;
+      }
+    });
+
+    // Combined mouseup handler
     document.addEventListener('mouseup', () => {
-      if (isResizing) {
-        isResizing = false;
+      if (isTldResizing) {
+        isTldResizing = false;
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
 
         // Save the new width to storage
         const newWidth = tldColumn.offsetWidth;
         chrome.storage.local.set({ tldColumnWidth: newWidth });
+      }
+
+      if (isExpandedResizing) {
+        isExpandedResizing = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+
+        // Save the new height to storage
+        const newHeight = expandedView.offsetHeight;
+        chrome.storage.local.set({ expandedViewHeight: newHeight });
       }
     });
   }

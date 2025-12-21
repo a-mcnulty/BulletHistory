@@ -426,6 +426,28 @@ body {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+/* Expanded View Resize Handle */
+.expanded-resize-handle {
+  height: 4px;
+  background: transparent;
+  cursor: row-resize;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  transition: background 0.15s ease;
+}
+
+.expanded-resize-handle:hover {
+  background: #999;
+}
+
+.expanded-resize-handle:active {
+  background: #666;
 }
 
 .expanded-header {
