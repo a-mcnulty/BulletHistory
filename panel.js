@@ -449,7 +449,8 @@ class BulletHistory {
     tldSpacer.style.height = `${totalHeight}px`;
     tldSpacer.style.width = '1px';
     cellSpacer.style.height = `${totalHeight}px`;
-    cellSpacer.style.width = `${totalWidth + 16}px`; // Add padding
+    // Width calculation: (N dates * 21px) - 3px (last gap) + 16px (left+right padding) = N*21 + 13
+    cellSpacer.style.width = `${totalWidth + 13}px`; // Match date-header-inner width
 
     // Initial render
     this.updateVirtualGrid();
@@ -561,7 +562,7 @@ class BulletHistory {
       cellRow.style.position = 'absolute';
       cellRow.style.top = `${rowIndex * this.rowHeight + 8}px`; // Add 8px padding
       cellRow.style.left = '0';
-      cellRow.style.width = `${this.dates.length * this.colWidth + 16}px`; // Full width of all dates + padding
+      cellRow.style.width = `${this.dates.length * this.colWidth + 13}px`; // Match date-header-inner width
 
       // Add today column highlight
       if (todayIndex !== -1) {
@@ -570,7 +571,7 @@ class BulletHistory {
         if (rowIndex === startRow) {
           cellRow.classList.add('first-row-today');
         }
-        const todayColLeft = todayIndex * this.colWidth + 8 - 1.5; // Position to center the 21px highlight
+        const todayColLeft = todayIndex * this.colWidth + 8 - 1; // Position to center the 20px highlight (1px padding on each side)
         cellRow.style.setProperty('--today-col-left', `${todayColLeft}px`);
       }
 
@@ -627,22 +628,41 @@ class BulletHistory {
     const cellGridWrapper = document.getElementById('cellGridWrapper');
     const tldColumn = document.getElementById('tldColumn');
 
+    let isHeaderScrolling = false;
+    let isGridScrolling = false;
+    let isTldScrolling = false;
+
     // Sync horizontal scroll: grid -> header
     // Sync vertical scroll: grid -> tld column
     cellGridWrapper.addEventListener('scroll', () => {
+      if (isHeaderScrolling || isTldScrolling) return;
+      isGridScrolling = true;
       dateHeader.scrollLeft = cellGridWrapper.scrollLeft;
       tldColumn.scrollTop = cellGridWrapper.scrollTop;
-    });
+      requestAnimationFrame(() => {
+        isGridScrolling = false;
+      });
+    }, { passive: true });
 
     // Sync horizontal scroll: header -> grid
     dateHeader.addEventListener('scroll', () => {
+      if (isGridScrolling) return;
+      isHeaderScrolling = true;
       cellGridWrapper.scrollLeft = dateHeader.scrollLeft;
-    });
+      requestAnimationFrame(() => {
+        isHeaderScrolling = false;
+      });
+    }, { passive: true });
 
     // Sync vertical scroll: tld column -> grid
     tldColumn.addEventListener('scroll', () => {
+      if (isGridScrolling) return;
+      isTldScrolling = true;
       cellGridWrapper.scrollTop = tldColumn.scrollTop;
-    });
+      requestAnimationFrame(() => {
+        isTldScrolling = false;
+      });
+    }, { passive: true });
 
     // Scroll to show today (right edge)
     cellGridWrapper.scrollLeft = cellGridWrapper.scrollWidth;
@@ -1976,12 +1996,19 @@ class BulletHistory {
     let startX = 0;
     let startWidth = 0;
 
+    // Function to update handle position
+    const updateHandlePosition = () => {
+      const tldWidth = tldColumn.offsetWidth;
+      tldHandle.style.left = `${tldWidth}px`;
+    };
+
     // Load saved TLD width from storage
     chrome.storage.local.get(['tldColumnWidth'], (result) => {
       if (result.tldColumnWidth) {
         tldColumn.style.width = `${result.tldColumnWidth}px`;
         headerSpacer.style.width = `${result.tldColumnWidth}px`;
       }
+      updateHandlePosition();
     });
 
     tldHandle.addEventListener('mousedown', (e) => {
@@ -2022,6 +2049,7 @@ class BulletHistory {
 
         tldColumn.style.width = `${newWidth}px`;
         headerSpacer.style.width = `${newWidth}px`;
+        updateHandlePosition();
       }
 
       if (isExpandedResizing) {

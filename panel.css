@@ -93,6 +93,7 @@ body {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none; /* Firefox */
+  will-change: scroll-position;
 }
 
 .date-header::-webkit-scrollbar {
@@ -101,7 +102,7 @@ body {
 
 .date-header-inner {
   padding-left: 8px;
-  padding-right: 10px;
+  padding-right: 8px;
   min-width: fit-content;
   display: flex;
   flex-direction: column;
@@ -192,9 +193,12 @@ body {
   width: 4px;
   background: transparent;
   cursor: col-resize;
-  position: relative;
-  flex-shrink: 0;
-  transition: background 0.15s ease;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 150px; /* Initial position, updated by JS */
+  z-index: 101;
+  transition: background 0.15s ease, left 0s;
 }
 
 .tld-resize-handle:hover {
@@ -233,6 +237,7 @@ body {
   flex: 1;
   overflow: auto;
   background: #fff;
+  will-change: scroll-position;
 }
 
 .cell-grid {
@@ -256,7 +261,7 @@ body {
   top: -1.5px;
   bottom: -1.5px;
   left: var(--today-col-left);
-  width: 21px;
+  width: 20px;
   background: rgba(101, 147, 185, 0.08);
   pointer-events: none;
   z-index: 1;
