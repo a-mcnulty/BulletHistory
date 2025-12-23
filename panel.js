@@ -1359,11 +1359,28 @@ class BulletHistory {
     const actionsDiv = document.createElement('div');
     actionsDiv.className = 'url-item-actions';
 
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'icon-btn delete';
-    deleteBtn.textContent = 'delete';
-    deleteBtn.title = 'Delete from history';
-    deleteBtn.addEventListener('click', () => this.deleteUrl(urlData.url, domain, date));
+    // For bookmarks view: Show "Manage" button instead of delete
+    if (this.expandedViewType === 'bookmarks') {
+      const manageBtn = document.createElement('button');
+      manageBtn.className = 'icon-btn manage';
+      manageBtn.textContent = 'manage';
+      manageBtn.title = 'Manage bookmark in Chrome';
+      manageBtn.addEventListener('click', () => {
+        // Open Chrome's bookmark manager to the specific folder
+        const folderId = urlData.folderId || '';
+        const bookmarkUrl = folderId ? `chrome://bookmarks/?id=${folderId}` : 'chrome://bookmarks/';
+        chrome.tabs.create({ url: bookmarkUrl });
+      });
+      actionsDiv.appendChild(manageBtn);
+    } else {
+      // For other views: Show delete button
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'icon-btn delete';
+      deleteBtn.textContent = 'delete';
+      deleteBtn.title = 'Delete from history';
+      deleteBtn.addEventListener('click', () => this.deleteUrl(urlData.url, domain, date));
+      actionsDiv.appendChild(deleteBtn);
+    }
 
     const bookmarkBtn = document.createElement('button');
     bookmarkBtn.className = 'icon-btn bookmark';
@@ -1374,7 +1391,6 @@ class BulletHistory {
     // Check if URL is already bookmarked
     this.checkBookmarkStatus(urlData.url, bookmarkBtn);
 
-    actionsDiv.appendChild(deleteBtn);
     actionsDiv.appendChild(bookmarkBtn);
 
     leftDiv.appendChild(countSpan);
@@ -2227,7 +2243,7 @@ class BulletHistory {
       const bookmarks = [];
 
       // Recursively collect all bookmarks with folder info
-      const collectBookmarks = (nodes, folderPath = []) => {
+      const collectBookmarks = (nodes, folderPath = [], parentId = null) => {
         nodes.forEach(node => {
           if (node.url) {
             // It's a bookmark
@@ -2236,6 +2252,7 @@ class BulletHistory {
                 url: node.url,
                 title: node.title || node.url,
                 folder: folderPath.join(' > ') || 'Root',
+                folderId: node.parentId || parentId, // Store the parent folder ID
                 dateAdded: node.dateAdded,
                 domain: new URL(node.url).hostname.replace(/^www\./, ''),
                 visitCount: 1,
@@ -2247,7 +2264,7 @@ class BulletHistory {
           } else if (node.children) {
             // It's a folder
             const newPath = node.title ? [...folderPath, node.title] : folderPath;
-            collectBookmarks(node.children, newPath);
+            collectBookmarks(node.children, newPath, node.id);
           }
         });
       };
