@@ -122,6 +122,25 @@ class BulletHistory {
     return `${year}-${month}-${day}`;
   }
 
+  formatDateHeader(dateStr) {
+    const date = new Date(dateStr + 'T00:00:00');
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    // Check if it's today or yesterday
+    if (this.formatDate(date) === this.formatDate(today)) {
+      return 'Today';
+    } else if (this.formatDate(date) === this.formatDate(yesterday)) {
+      return 'Yesterday';
+    }
+
+    // Otherwise, format as "Day, Month Date, Year" (e.g., "Monday, Dec 23, 2025")
+    const options = { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' };
+    return date.toLocaleDateString('en-US', options);
+  }
+
   // Fetch Chrome history (all available) or generate fake data
   async fetchHistory() {
     if (this.useFakeData) {
@@ -957,8 +976,21 @@ class BulletHistory {
       });
     });
 
-    // Sort by most recent first
-    allUrls.sort((a, b) => b.lastVisit - a.lastVisit);
+    // Sort based on current sort mode
+    if (this.sortMode === 'popular') {
+      // Most Popular: Sort by visit count (descending)
+      allUrls.sort((a, b) => b.visitCount - a.visitCount);
+    } else if (this.sortMode === 'alphabetical') {
+      // Alphabetical: Sort by domain, then by URL
+      allUrls.sort((a, b) => {
+        const domainCompare = a.domain.localeCompare(b.domain);
+        if (domainCompare !== 0) return domainCompare;
+        return a.url.localeCompare(b.url);
+      });
+    } else {
+      // Most Recent (default): Sort by most recent visit
+      allUrls.sort((a, b) => b.lastVisit - a.lastVisit);
+    }
 
     // Store URLs and render with pagination
     this.expandedUrls = allUrls;
@@ -1149,8 +1181,6 @@ class BulletHistory {
         return 'Full History';
       case 'bookmarks':
         return 'Bookmarks';
-      case 'frequent':
-        return 'Frequently Visited';
       case 'closed':
         return 'Recently Closed';
       case 'domain':
@@ -1201,11 +1231,54 @@ class BulletHistory {
     // Clear list
     urlList.innerHTML = '';
 
-    // Render items for current page
+    // Render items for current page with grouping headers
+    let currentGroup = null;
     for (let i = startIndex; i < endIndex; i++) {
       const urlData = filteredUrls[i];
+
+      // Determine group based on view type and sort mode
+      let groupKey = null;
+      let groupLabel = null;
+
+      if (this.expandedViewType === 'bookmarks') {
+        // Bookmarks: Always group by folder
+        groupKey = urlData.folder || 'Root';
+        groupLabel = groupKey;
+      } else if (this.expandedViewType === 'closed' || this.expandedViewType === 'full' || this.expandedViewType === 'recent') {
+        // All and Closed: Only show date headers in "Most Recent" mode
+        if (this.sortMode === 'recent') {
+          if (this.expandedViewType === 'closed') {
+            // Group by date closed
+            groupKey = this.formatDate(new Date(urlData.closedAt));
+            groupLabel = this.formatDateHeader(groupKey);
+          } else {
+            // Group by date visited
+            groupKey = this.formatDate(new Date(urlData.lastVisit));
+            groupLabel = this.formatDateHeader(groupKey);
+          }
+        }
+        // For 'popular' and 'alphabetical' modes, don't show any headers
+      }
+
+      // Add group header if group changed
+      if (groupKey && groupKey !== currentGroup) {
+        currentGroup = groupKey;
+        const groupHeader = document.createElement('div');
+        groupHeader.className = 'date-group-header';
+        groupHeader.textContent = groupLabel;
+        urlList.appendChild(groupHeader);
+      }
+
       const urlItem = this.createUrlItem(urlData, urlData.domain, urlData.date);
       urlList.appendChild(urlItem);
+    }
+
+    // Add extra whitespace if fewer than 20 items to ensure expanded view can open fully
+    const itemsOnPage = endIndex - startIndex;
+    if (itemsOnPage < 20) {
+      const spacer = document.createElement('div');
+      spacer.style.minHeight = '400px'; // Ensure enough space for resizing
+      urlList.appendChild(spacer);
     }
 
     // Update or create pagination controls
@@ -1734,7 +1807,22 @@ class BulletHistory {
 
     sortDropdown.addEventListener('change', (e) => {
       this.sortMode = e.target.value;
+
+      // Check if expanded view is open and what type
+      const expandedView = document.getElementById('expandedView');
+      const wasOpen = expandedView.style.display === 'block';
+      const viewType = this.expandedViewType;
+
       this.refreshGrid();
+
+      // Re-open and refresh the expanded view if it was open and it's 'all' or 'closed'
+      if (wasOpen && (viewType === 'full' || viewType === 'recent' || viewType === 'closed')) {
+        if (viewType === 'full' || viewType === 'recent') {
+          this.showFullHistory();
+        } else if (viewType === 'closed') {
+          this.showRecentlyClosed();
+        }
+      }
     });
   }
 
@@ -1758,8 +1846,6 @@ class BulletHistory {
           this.showFullHistory();
         } else if (viewType === 'bookmarks') {
           this.showBookmarks();
-        } else if (viewType === 'frequent') {
-          this.showFrequentlyVisited();
         } else if (viewType === 'closed') {
           this.showRecentlyClosed();
         }
@@ -1908,9 +1994,6 @@ class BulletHistory {
       } else if (this.expandedViewType === 'recent' || this.expandedViewType === 'full') {
         // Refresh full history view
         this.showFullHistory();
-      } else if (this.expandedViewType === 'frequent') {
-        // Refresh frequently visited view
-        this.showFrequentlyVisited();
       }
       // Note: bookmarks and closed tabs don't need live updates from history
 
@@ -1927,10 +2010,6 @@ class BulletHistory {
 
     document.getElementById('bookmarksBtn').addEventListener('click', () => {
       this.showBookmarks();
-    });
-
-    document.getElementById('frequentBtn').addEventListener('click', () => {
-      this.showFrequentlyVisited();
     });
 
     document.getElementById('recentlyClosedBtn').addEventListener('click', () => {
@@ -2187,57 +2266,6 @@ class BulletHistory {
     });
   }
 
-  // Show frequently visited pages
-  showFrequentlyVisited() {
-    const expandedView = document.getElementById('expandedView');
-    const expandedTitle = document.getElementById('expandedTitle');
-
-    this.expandedViewType = 'frequent';
-    this.currentDomain = null;
-
-    expandedTitle.textContent = 'Frequently Visited';
-
-    // Remove navigation and delete button if they exist
-    const navContainer = document.getElementById('expandedNav');
-    if (navContainer) navContainer.remove();
-    const deleteBtn = document.getElementById('deleteDomain');
-    if (deleteBtn) deleteBtn.remove();
-
-    // Collect all URLs with visit counts
-    const urlVisits = new Map();
-
-    Object.keys(this.historyData).forEach(domain => {
-      Object.keys(this.historyData[domain].days).forEach(dateStr => {
-        const dayData = this.historyData[domain].days[dateStr];
-        dayData.urls.forEach(urlData => {
-          const existing = urlVisits.get(urlData.url);
-          if (existing) {
-            existing.visitCount += urlData.visitCount;
-            existing.lastVisit = Math.max(existing.lastVisit, urlData.lastVisit);
-          } else {
-            urlVisits.set(urlData.url, {
-              url: urlData.url,
-              title: urlData.title,
-              visitCount: urlData.visitCount,
-              lastVisit: urlData.lastVisit,
-              domain: domain,
-              date: dateStr
-            });
-          }
-        });
-      });
-    });
-
-    // Convert to array and sort by visit count
-    const frequentUrls = Array.from(urlVisits.values());
-    frequentUrls.sort((a, b) => b.visitCount - a.visitCount);
-
-    this.expandedUrls = frequentUrls;
-    expandedTitle.textContent = `Frequently Visited (${frequentUrls.length} total)`;
-    this.renderUrlList();
-
-    expandedView.style.display = 'block';
-  }
 
   // Show recently closed tabs with restore functionality
   showRecentlyClosed() {
@@ -2283,6 +2311,22 @@ class BulletHistory {
           };
         }
       });
+
+      // Sort based on current sort mode
+      if (this.sortMode === 'popular') {
+        // Most Popular: For closed tabs, just use most recent since we don't have visit counts
+        closedUrls.sort((a, b) => b.closedAt - a.closedAt);
+      } else if (this.sortMode === 'alphabetical') {
+        // Alphabetical: Sort by domain, then by URL
+        closedUrls.sort((a, b) => {
+          const domainCompare = a.domain.localeCompare(b.domain);
+          if (domainCompare !== 0) return domainCompare;
+          return a.url.localeCompare(b.url);
+        });
+      } else {
+        // Most Recent (default): Sort by most recently closed
+        closedUrls.sort((a, b) => b.closedAt - a.closedAt);
+      }
 
       this.expandedUrls = closedUrls;
       expandedTitle.textContent = `Recently Closed (${closedUrls.length} total)`;

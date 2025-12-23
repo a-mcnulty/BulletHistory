@@ -442,6 +442,7 @@ body {
   display: flex;
   flex-direction: column;
   position: relative;
+  z-index: 102;
 }
 
 /* Expanded View Resize Handle */
@@ -752,7 +753,7 @@ body {
   flex-shrink: 0;
   position: sticky;
   bottom: 0;
-  z-index: 100;
+  z-index: 103;
 }
 
 .menu-btn {
