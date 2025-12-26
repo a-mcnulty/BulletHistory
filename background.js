@@ -1,9 +1,9 @@
 // Background service worker - handles extension icon clicks
 
-chrome.action.onClicked.addListener((tab) => {
-  // Open the side panel when extension icon is clicked
-  chrome.sidePanel.open({ windowId: tab.windowId });
-});
+// Enable native toggle behavior for the side panel
+chrome.sidePanel
+  .setPanelBehavior({ openPanelOnActionClick: true })
+  .catch((error) => console.error(error));
 
 // Track recently closed tabs
 const MAX_CLOSED_TABS = 50;

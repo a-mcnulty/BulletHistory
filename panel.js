@@ -69,12 +69,56 @@ class BulletHistory {
     this.setupBottomMenu();
     this.setupZoomControls();
     this.setupResizeHandle();
+    this.setupDateChangeDetection();
 
     // Show full history by default
     this.showFullHistory();
 
     // Scroll to show today (not future days)
     this.scrollToToday();
+  }
+
+  // Detect when the date changes and update the header
+  setupDateChangeDetection() {
+    // Store the current date
+    let lastDate = this.formatDate(new Date());
+
+    // Update when the page becomes visible again
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const currentDate = this.formatDate(today);
+
+        if (currentDate !== lastDate) {
+          // Date changed while user was away!
+          lastDate = currentDate;
+          this.renderDateHeader();
+          this.updateVirtualGrid();
+          this.scrollToToday();
+        } else {
+          // Date hasn't changed, but still scroll to today in case TLD width changed
+          this.scrollToToday();
+        }
+      }
+    });
+
+    // Also check on focus (when side panel is opened)
+    window.addEventListener('focus', () => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const currentDate = this.formatDate(today);
+
+      if (currentDate !== lastDate) {
+        lastDate = currentDate;
+        this.renderDateHeader();
+        this.updateVirtualGrid();
+        this.scrollToToday();
+      } else {
+        // Date hasn't changed, but still scroll to today in case TLD width changed
+        this.scrollToToday();
+      }
+    });
   }
 
   // Generate date range from first to last history date
@@ -438,14 +482,32 @@ class BulletHistory {
     });
   }
 
-  // Calculate cell saturation based on visit count
-  getCellSaturation(count, maxCount) {
-    if (count === 0) return 0;
-    const minSaturation = 40; // Raised from 20 for more vivid colors
-    const maxSaturation = 90;
-    // Use square root for better distribution - makes lower values more vivid
-    const normalized = Math.sqrt(Math.min(count / maxCount, 1));
-    return minSaturation + (normalized * (maxSaturation - minSaturation));
+  // Get GitHub-style color based on visit count
+  // Uses discrete levels like GitHub's contribution graph
+  getGitHubStyleColor(count, maxCount, baseColor) {
+    if (count === 0) return '#ebedf0'; // GitHub's empty cell color (light gray)
+
+    // Calculate which quartile this count falls into
+    const normalized = count / maxCount;
+
+    // GitHub uses 4 distinct levels
+    // Parse the base color to get the hue
+    const hslMatch = baseColor.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/);
+    const hue = hslMatch ? hslMatch[1] : '140'; // Default to green if parsing fails
+
+    if (normalized <= 0.25) {
+      // Level 1: Lightest (1-25%)
+      return `hsl(${hue}, 42%, 86%)`;
+    } else if (normalized <= 0.5) {
+      // Level 2: Light-medium (26-50%)
+      return `hsl(${hue}, 50%, 76%)`;
+    } else if (normalized <= 0.75) {
+      // Level 3: Medium-dark (51-75%)
+      return `hsl(${hue}, 54%, 66%)`;
+    } else {
+      // Level 4: Darkest (76-100%) - dialed back one more step
+      return `hsl(${hue}, 58%, 60%)`;
+    }
   }
 
   // Setup virtual grid with spacers
@@ -551,27 +613,42 @@ class BulletHistory {
     const todayStr = this.formatDate(today);
     const todayIndex = this.dates.indexOf(todayStr);
 
-    // Find max visit count for saturation calculation
-    let maxCount = 0;
-    this.sortedDomains.forEach(domain => {
-      Object.values(this.historyData[domain].days).forEach(day => {
-        maxCount = Math.max(maxCount, day.count);
-      });
-    });
-
     // Render visible rows
     for (let rowIndex = startRow; rowIndex < endRow; rowIndex++) {
       const domain = this.sortedDomains[rowIndex];
       if (!domain) continue;
 
+      // Find max visit count for THIS DOMAIN (row-normalized)
+      let maxCount = 0;
+      Object.values(this.historyData[domain].days).forEach(day => {
+        maxCount = Math.max(maxCount, day.count);
+      });
+
       // TLD label
       const tldRow = document.createElement('div');
       tldRow.className = 'tld-row';
-      tldRow.textContent = domain;
       tldRow.dataset.rowIndex = rowIndex;
       tldRow.style.position = 'absolute';
       tldRow.style.top = `${rowIndex * this.rowHeight + 8}px`; // Add 8px padding
       tldRow.style.width = '100%';
+
+      // Domain name span
+      const domainSpan = document.createElement('span');
+      domainSpan.className = 'tld-name';
+      domainSpan.textContent = domain;
+      tldRow.appendChild(domainSpan);
+
+      // Delete button (shown on hover)
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'tld-delete-btn';
+      deleteBtn.innerHTML = '🗑️';
+      deleteBtn.title = 'Delete all history for this domain';
+      deleteBtn.addEventListener('click', (e) => {
+        e.stopPropagation(); // Prevent row click
+        this.deleteDomainData(domain);
+      });
+      tldRow.appendChild(deleteBtn);
+
       tldColumn.appendChild(tldRow);
 
       // Cell row
@@ -617,16 +694,8 @@ class BulletHistory {
 
         if (dayData && dayData.count > 0) {
           const baseColor = this.colors[domain];
-          const saturation = this.getCellSaturation(dayData.count, maxCount);
-
-          // Parse HSL and adjust saturation
-          const hslMatch = baseColor.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/);
-          if (hslMatch) {
-            const [, h, , l] = hslMatch;
-            cell.style.backgroundColor = `hsl(${h}, ${saturation}%, ${l}%)`;
-          } else {
-            cell.style.backgroundColor = baseColor;
-          }
+          // Use GitHub-style discrete color levels
+          cell.style.backgroundColor = this.getGitHubStyleColor(dayData.count, maxCount, baseColor);
 
           cell.dataset.count = dayData.count;
         } else {
@@ -727,8 +796,10 @@ class BulletHistory {
 
     // Click on TLD row to show full domain view
     tldColumn.addEventListener('click', (e) => {
-      if (e.target.classList.contains('tld-row')) {
-        const rowIndex = e.target.dataset.rowIndex;
+      // Find the tld-row element (could be the target or a parent)
+      const tldRow = e.target.closest('.tld-row');
+      if (tldRow) {
+        const rowIndex = tldRow.dataset.rowIndex;
         const domain = this.sortedDomains[rowIndex];
 
         if (domain) {
@@ -1727,27 +1798,72 @@ class BulletHistory {
             delete this.historyData[domain];
             this.sortedDomains = this.getSortedDomains();
             this.closeExpandedView();
-            this.updateVirtualGrid();
+
+            // Force complete re-render
+            this.virtualState = {
+              startRow: -1,
+              endRow: -1,
+              startCol: -1,
+              endCol: -1,
+              viewportHeight: 0,
+              viewportWidth: 0
+            };
+            this.setupVirtualGrid();
           } else {
             // Refresh the appropriate view
             if (this.expandedViewType === 'domain') {
               this.showDomainView(domain);
-              this.updateVirtualGrid();
+
+              // Force complete re-render
+              this.virtualState = {
+                startRow: -1,
+                endRow: -1,
+                startCol: -1,
+                endCol: -1,
+                viewportHeight: 0,
+                viewportWidth: 0
+              };
+              this.setupVirtualGrid();
             } else if (this.expandedViewType === 'cell') {
               // If current day still has URLs, refresh cell view
               if (this.historyData[domain].days[date]) {
                 this.showExpandedView(domain, date, this.historyData[domain].days[date].count);
-                this.updateVirtualGrid();
+
+                // Force complete re-render
+                this.virtualState = {
+                  startRow: -1,
+                  endRow: -1,
+                  startCol: -1,
+                  endCol: -1,
+                  viewportHeight: 0,
+                  viewportWidth: 0
+                };
+                this.setupVirtualGrid();
               } else {
                 // Day is empty, close the view
                 this.closeExpandedView();
-                this.updateVirtualGrid();
+
+                // Force complete re-render
+                this.virtualState = {
+                  startRow: -1,
+                  endRow: -1,
+                  startCol: -1,
+                  endCol: -1,
+                  viewportHeight: 0,
+                  viewportWidth: 0
+                };
+                this.setupVirtualGrid();
               }
             }
           }
         }
       }
     });
+  }
+
+  // Delete all history for a domain (alias for use in TLD row delete button)
+  deleteDomainData(domain) {
+    this.deleteDomain(domain);
   }
 
   // Delete all history for a domain
@@ -1779,7 +1895,17 @@ class BulletHistory {
 
           // Close view and refresh grid
           this.closeExpandedView();
-          this.updateVirtualGrid();
+
+          // Force complete re-render by resetting virtual state
+          this.virtualState = {
+            startRow: -1,
+            endRow: -1,
+            startCol: -1,
+            endCol: -1,
+            viewportHeight: 0,
+            viewportWidth: 0
+          };
+          this.setupVirtualGrid();
         }
       });
     });
@@ -2104,6 +2230,12 @@ class BulletHistory {
         headerSpacer.style.width = `${result.tldColumnWidth}px`;
       }
       updateHandlePosition();
+
+      // Scroll to today after TLD width is restored
+      // Use requestAnimationFrame to ensure DOM has updated
+      requestAnimationFrame(() => {
+        this.scrollToToday();
+      });
     });
 
     tldHandle.addEventListener('mousedown', (e) => {
