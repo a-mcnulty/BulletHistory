@@ -1776,7 +1776,15 @@ class BulletHistory {
   // Delete URL from history
   async deleteUrl(url, domain, date) {
     // Delete from Chrome history
-    chrome.history.deleteUrl({ url: url }, () => {
+    chrome.history.deleteUrl({ url: url }, async () => {
+
+      // If in closed tabs view, also remove from closed tabs storage
+      if (this.expandedViewType === 'closed') {
+        const result = await chrome.storage.local.get(['closedTabs']);
+        const closedTabs = result.closedTabs || [];
+        const updatedClosedTabs = closedTabs.filter(tab => tab.url !== url);
+        await chrome.storage.local.set({ closedTabs: updatedClosedTabs });
+      }
 
       // Update local data
       const dayData = this.historyData[domain].days[date];
@@ -1854,6 +1862,45 @@ class BulletHistory {
                 };
                 this.setupVirtualGrid();
               }
+            } else if (this.expandedViewType === 'full' || this.expandedViewType === 'recent') {
+              // Refresh "All" view
+              this.showFullHistory();
+
+              // Force complete re-render
+              this.virtualState = {
+                startRow: -1,
+                endRow: -1,
+                startCol: -1,
+                endCol: -1,
+                viewportHeight: 0,
+                viewportWidth: 0
+              };
+              this.setupVirtualGrid();
+            } else if (this.expandedViewType === 'closed') {
+              // Refresh "Closed" view
+              this.showRecentlyClosed();
+
+              // Force complete re-render
+              this.virtualState = {
+                startRow: -1,
+                endRow: -1,
+                startCol: -1,
+                endCol: -1,
+                viewportHeight: 0,
+                viewportWidth: 0
+              };
+              this.setupVirtualGrid();
+            } else {
+              // For any other view (bookmarks, etc), just refresh the grid
+              this.virtualState = {
+                startRow: -1,
+                endRow: -1,
+                startCol: -1,
+                endCol: -1,
+                viewportHeight: 0,
+                viewportWidth: 0
+              };
+              this.setupVirtualGrid();
             }
           }
         }
