@@ -41,8 +41,6 @@ class BulletHistory {
     this.currentDomain = null; // Track current domain for domain view
     this.sortMode = 'recent'; // 'recent', 'frequency', or 'alphabetical'
     this.searchFilter = ''; // Search filter text
-    this.dateRangeFilter = { start: null, end: null }; // Date range filter
-    this.allDates = []; // Store all generated dates (unfiltered)
     this.virtualGridInitialized = false; // Track if listeners are set up
     this.itemsPerPage = 100; // Items per page
     // Track pagination per view type
@@ -68,7 +66,6 @@ class BulletHistory {
     this.setupLiveUpdates();
     this.setupSortDropdown();
     this.setupSearchInput();
-    this.setupDateRangeFilter();
     this.setupBottomMenu();
     this.setupZoomControls();
     this.setupResizeHandle();
@@ -151,37 +148,15 @@ class BulletHistory {
     earliestDate.setDate(earliestDate.getDate() - 7); // Add previous week
 
     // Generate all dates between (earliest - 1 week) and (today + 1 week)
-    this.allDates = [];
+    this.dates = [];
     const current = new Date(earliestDate);
     current.setHours(0, 0, 0, 0);
 
     while (current <= latestDate) {
-      this.allDates.push(this.formatDate(current));
+      this.dates.push(this.formatDate(current));
       current.setDate(current.getDate() + 1);
     }
 
-    // Set default date filter values (7 days before earliest, 7 days after today)
-    if (!this.dateRangeFilter.start && !this.dateRangeFilter.end) {
-      this.dateRangeFilter.start = this.allDates[0]; // Already includes -7 days
-      this.dateRangeFilter.end = this.formatDate(latestDate); // Already includes +7 days
-    }
-
-    // Apply date filter
-    this.applyDateFilter();
-  }
-
-  // Apply the current date range filter to this.dates
-  applyDateFilter() {
-    if (!this.dateRangeFilter.start || !this.dateRangeFilter.end) {
-      // No filter set, show all dates
-      this.dates = [...this.allDates];
-      return;
-    }
-
-    // Filter dates to only those within the range
-    this.dates = this.allDates.filter(date => {
-      return date >= this.dateRangeFilter.start && date <= this.dateRangeFilter.end;
-    });
   }
 
   formatDate(date) {
@@ -2065,77 +2040,6 @@ class BulletHistory {
         }
         // Note: We don't re-open 'cell' or 'domain' views since filtering changes which domains are visible
       }
-    });
-  }
-
-  setupDateRangeFilter() {
-    const startDateInput = document.getElementById('startDate');
-    const endDateInput = document.getElementById('endDate');
-    const resetButton = document.getElementById('resetFilters');
-
-    // Set initial values in the date inputs
-    if (this.dateRangeFilter.start) {
-      startDateInput.value = this.dateRangeFilter.start;
-    }
-    if (this.dateRangeFilter.end) {
-      endDateInput.value = this.dateRangeFilter.end;
-    }
-
-    // Handle start date change
-    startDateInput.addEventListener('change', (e) => {
-      let startDate = e.target.value;
-      let endDate = endDateInput.value;
-
-      // Swap if start > end
-      if (startDate && endDate && startDate > endDate) {
-        [startDate, endDate] = [endDate, startDate];
-        startDateInput.value = startDate;
-        endDateInput.value = endDate;
-      }
-
-      this.dateRangeFilter.start = startDate;
-      this.dateRangeFilter.end = endDate;
-      this.applyDateFilter();
-      this.renderDateHeader();
-      this.refreshGrid();
-    });
-
-    // Handle end date change
-    endDateInput.addEventListener('change', (e) => {
-      let startDate = startDateInput.value;
-      let endDate = e.target.value;
-
-      // Swap if start > end
-      if (startDate && endDate && startDate > endDate) {
-        [startDate, endDate] = [endDate, startDate];
-        startDateInput.value = startDate;
-        endDateInput.value = endDate;
-      }
-
-      this.dateRangeFilter.start = startDate;
-      this.dateRangeFilter.end = endDate;
-      this.applyDateFilter();
-      this.renderDateHeader();
-      this.refreshGrid();
-    });
-
-    // Handle reset button
-    resetButton.addEventListener('click', () => {
-      // Reset date range to defaults
-      this.dateRangeFilter.start = this.allDates[0];
-      this.dateRangeFilter.end = this.allDates[this.allDates.length - 1];
-      startDateInput.value = this.dateRangeFilter.start;
-      endDateInput.value = this.dateRangeFilter.end;
-
-      // Clear search filter
-      const searchInput = document.getElementById('searchInput');
-      searchInput.value = '';
-      this.searchFilter = '';
-
-      // Refresh grid
-      this.applyDateFilter();
-      this.renderDateHeader();
-      this.refreshGrid();
     });
   }
 
