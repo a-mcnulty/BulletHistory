@@ -72,6 +72,10 @@ class BulletHistory {
     this.setupDateChangeDetection();
     this.setupExpandedViewZoomHandler();
 
+    // Initialize calendar integration
+    await this.initializeCalendar();
+    this.setupCalendarUI();
+
     // Show full history by default
     this.showFullHistory();
 
@@ -721,6 +725,9 @@ class BulletHistory {
           cell.dataset.count = 0;
         }
 
+        // Add calendar event indicators (colored dots)
+        this.addCalendarDotsToCell(cell, dateStr);
+
         cellRow.appendChild(cell);
       }
 
@@ -1258,6 +1265,9 @@ class BulletHistory {
     // Store URLs and render with pagination
     this.expandedUrls = urlsWithContext;
     this.renderUrlList();
+
+    // Render calendar events for this date
+    this.renderCalendarEventsForDate(date);
 
     expandedView.style.display = 'block';
   }
@@ -2649,6 +2659,445 @@ class BulletHistory {
     this.attachUrlPreview(urlLink, urlData);
 
     return item;
+  }
+
+  // ===== CALENDAR INTEGRATION METHODS =====
+
+  /**
+   * Initialize calendar service and load data
+   */
+  async initializeCalendar() {
+    try {
+      // Load calendar data from storage
+      await googleCalendar.loadCalendarData();
+
+      // Check if authenticated
+      const authStatus = await googleCalendar.checkAuthStatus();
+
+      if (authStatus.authenticated) {
+        // Fetch calendar list if we don't have it
+        if (Object.keys(googleCalendar.calendarData.calendars).length === 0) {
+          await googleCalendar.fetchCalendarList();
+        }
+
+        // Fetch events for current date range
+        const startDate = this.dates[0];
+        const endDate = this.dates[this.dates.length - 1];
+        await googleCalendar.fetchEventsForDateRange(startDate, endDate);
+      }
+    } catch (error) {
+      console.error('Failed to initialize calendar:', error);
+    }
+  }
+
+  /**
+   * Setup calendar UI event handlers
+   */
+  setupCalendarUI() {
+    const settingsBtn = document.getElementById('calendarSettingsBtn');
+    const modal = document.getElementById('calendarSettingsModal');
+    const closeModalBtn = document.getElementById('closeCalendarModal');
+    const modalOverlay = document.getElementById('modalOverlay');
+    const connectBtn = document.getElementById('connectCalendarBtn');
+    const disconnectBtn = document.getElementById('disconnectCalendarBtn');
+    const refreshBtn = document.getElementById('refreshCalendarsBtn');
+    const sectionToggle = document.getElementById('calendarSectionToggle');
+    const sectionHeader = document.getElementById('calendarSectionHeader');
+
+    // Open settings modal
+    settingsBtn.addEventListener('click', async () => {
+      await this.openCalendarSettings();
+    });
+
+    // Close modal
+    const closeModal = () => {
+      modal.style.display = 'none';
+    };
+
+    closeModalBtn.addEventListener('click', closeModal);
+    modalOverlay.addEventListener('click', closeModal);
+
+    // Connect calendar
+    connectBtn.addEventListener('click', async () => {
+      connectBtn.disabled = true;
+      connectBtn.textContent = 'Connecting...';
+
+      try {
+        const result = await googleCalendar.authenticateUser();
+
+        if (result.success) {
+          // Update UI
+          await this.updateCalendarAuthUI();
+
+          // Fetch calendar list
+          await googleCalendar.fetchCalendarList();
+          this.renderCalendarList();
+
+          // Fetch events for current date range
+          const startDate = this.dates[0];
+          const endDate = this.dates[this.dates.length - 1];
+          await googleCalendar.fetchEventsForDateRange(startDate, endDate);
+
+          // Refresh grid to show event indicators
+          this.updateVirtualGrid();
+        } else {
+          alert('Failed to connect to Google Calendar: ' + (result.error || 'Unknown error'));
+        }
+      } catch (error) {
+        console.error('Authentication error:', error);
+        alert('Failed to connect to Google Calendar');
+      } finally {
+        connectBtn.disabled = false;
+        connectBtn.textContent = 'Connect Google Calendar';
+      }
+    });
+
+    // Disconnect calendar
+    disconnectBtn.addEventListener('click', async () => {
+      if (confirm('Disconnect from Google Calendar? Your calendar events will no longer be displayed.')) {
+        await googleCalendar.revokeToken();
+        await this.updateCalendarAuthUI();
+
+        // Refresh grid to remove event indicators
+        this.updateVirtualGrid();
+      }
+    });
+
+    // Refresh calendar list
+    refreshBtn.addEventListener('click', async () => {
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = '🔄 Refreshing...';
+
+      try {
+        await googleCalendar.fetchCalendarList();
+        this.renderCalendarList();
+
+        // Re-fetch events
+        const startDate = this.dates[0];
+        const endDate = this.dates[this.dates.length - 1];
+        await googleCalendar.fetchEventsForDateRange(startDate, endDate);
+
+        // Refresh grid
+        this.updateVirtualGrid();
+      } catch (error) {
+        console.error('Failed to refresh calendars:', error);
+        alert('Failed to refresh calendar list');
+      } finally {
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = '🔄 Refresh Calendar List';
+      }
+    });
+
+    // Toggle calendar section in expanded view
+    if (sectionHeader) {
+      sectionHeader.addEventListener('click', () => {
+        const eventsList = document.getElementById('calendarEventsList');
+        const isCollapsed = eventsList.classList.contains('collapsed');
+
+        if (isCollapsed) {
+          eventsList.classList.remove('collapsed');
+          sectionToggle.classList.remove('collapsed');
+          sectionToggle.textContent = '▼';
+        } else {
+          eventsList.classList.add('collapsed');
+          sectionToggle.classList.add('collapsed');
+          sectionToggle.textContent = '▶';
+        }
+      });
+    }
+  }
+
+  /**
+   * Open calendar settings modal and update UI
+   */
+  async openCalendarSettings() {
+    const modal = document.getElementById('calendarSettingsModal');
+    modal.style.display = 'flex';
+
+    await this.updateCalendarAuthUI();
+  }
+
+  /**
+   * Update calendar authentication UI state
+   */
+  async updateCalendarAuthUI() {
+    const authStatus = await googleCalendar.checkAuthStatus();
+    const authStatusEl = document.getElementById('authStatus');
+    const authStatusText = authStatusEl.querySelector('.auth-status-text');
+    const connectBtn = document.getElementById('connectCalendarBtn');
+    const disconnectBtn = document.getElementById('disconnectCalendarBtn');
+    const calendarListSection = document.getElementById('calendarListSection');
+
+    if (authStatus.authenticated) {
+      authStatusEl.classList.add('authenticated');
+      authStatusText.textContent = `✓ Connected as ${authStatus.email}`;
+      connectBtn.style.display = 'none';
+      disconnectBtn.style.display = 'block';
+      calendarListSection.style.display = 'block';
+
+      this.renderCalendarList();
+    } else {
+      authStatusEl.classList.remove('authenticated');
+      authStatusText.textContent = 'Not connected';
+      connectBtn.style.display = 'block';
+      disconnectBtn.style.display = 'none';
+      calendarListSection.style.display = 'none';
+    }
+  }
+
+  /**
+   * Render calendar list with checkboxes
+   */
+  renderCalendarList() {
+    const calendarList = document.getElementById('calendarList');
+    calendarList.innerHTML = '';
+
+    const calendars = Object.values(googleCalendar.calendarData.calendars);
+
+    if (calendars.length === 0) {
+      calendarList.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">No calendars found</p>';
+      return;
+    }
+
+    calendars.forEach(calendar => {
+      const item = document.createElement('div');
+      item.className = 'calendar-item';
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = calendar.enabled;
+      checkbox.addEventListener('change', async (e) => {
+        await googleCalendar.toggleCalendar(calendar.id, e.target.checked);
+
+        // Re-fetch events
+        const startDate = this.dates[0];
+        const endDate = this.dates[this.dates.length - 1];
+        await googleCalendar.fetchEventsForDateRange(startDate, endDate);
+
+        // Refresh grid
+        this.updateVirtualGrid();
+
+        // Refresh expanded view if open
+        if (this.expandedViewType === 'cell' && this.selectedCell) {
+          const domain = this.selectedCell.dataset.domain;
+          const date = this.selectedCell.dataset.date;
+          const count = parseInt(this.selectedCell.dataset.count);
+          this.renderCalendarEventsForDate(date);
+        }
+      });
+
+      const colorDiv = document.createElement('div');
+      colorDiv.className = 'calendar-color';
+      colorDiv.style.backgroundColor = calendar.backgroundColor;
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'calendar-name';
+      nameSpan.textContent = calendar.name;
+
+      item.appendChild(checkbox);
+      item.appendChild(colorDiv);
+      item.appendChild(nameSpan);
+
+      calendarList.appendChild(item);
+    });
+  }
+
+  /**
+   * Render calendar events for a specific date in expanded view
+   */
+  renderCalendarEventsForDate(dateStr) {
+    const calendarSection = document.getElementById('calendarSection');
+    const calendarEventsList = document.getElementById('calendarEventsList');
+
+    // Get events for this date
+    const events = googleCalendar.getEventsForDate(dateStr);
+    const enabledEvents = events.filter(evt =>
+      googleCalendar.calendarData.calendars[evt.calendarId]?.enabled
+    );
+
+    if (enabledEvents.length === 0) {
+      calendarSection.style.display = 'none';
+      return;
+    }
+
+    calendarSection.style.display = 'block';
+    calendarEventsList.innerHTML = '';
+    calendarEventsList.classList.remove('collapsed');
+
+    // Group events: all-day first, then by time
+    const allDayEvents = enabledEvents.filter(e => e.isAllDay);
+    const timedEvents = enabledEvents.filter(e => !e.isAllDay)
+      .sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime));
+
+    // Render all-day events
+    if (allDayEvents.length > 0) {
+      const groupHeader = document.createElement('div');
+      groupHeader.className = 'calendar-time-group';
+      groupHeader.textContent = 'All Day';
+      calendarEventsList.appendChild(groupHeader);
+
+      allDayEvents.forEach(evt => {
+        calendarEventsList.appendChild(this.createCalendarEventItem(evt));
+      });
+    }
+
+    // Render timed events
+    if (timedEvents.length > 0) {
+      if (allDayEvents.length > 0) {
+        const groupHeader = document.createElement('div');
+        groupHeader.className = 'calendar-time-group';
+        groupHeader.textContent = 'Scheduled';
+        calendarEventsList.appendChild(groupHeader);
+      }
+
+      timedEvents.forEach(evt => {
+        calendarEventsList.appendChild(this.createCalendarEventItem(evt));
+      });
+    }
+  }
+
+  /**
+   * Create a calendar event item element
+   */
+  createCalendarEventItem(event) {
+    const item = document.createElement('div');
+    item.className = 'calendar-event-item';
+    item.style.borderLeftColor = event.backgroundColor;
+
+    // Time
+    const timeDiv = document.createElement('div');
+    timeDiv.className = 'calendar-event-time';
+    if (event.isAllDay) {
+      timeDiv.className += ' all-day';
+      timeDiv.textContent = 'All day';
+    } else {
+      const start = new Date(event.start.dateTime);
+      const end = new Date(event.end.dateTime);
+      timeDiv.textContent = this.formatTimeRange(start, end);
+    }
+
+    // Details
+    const detailsDiv = document.createElement('div');
+    detailsDiv.className = 'calendar-event-details';
+
+    const summary = document.createElement('div');
+    summary.className = 'calendar-event-summary';
+    summary.textContent = event.summary;
+
+    const meta = document.createElement('div');
+    meta.className = 'calendar-event-meta';
+
+    // Calendar name with color
+    const calendarInfo = document.createElement('div');
+    calendarInfo.className = 'calendar-event-calendar';
+    const colorIndicator = document.createElement('div');
+    colorIndicator.className = 'calendar-color-indicator';
+    colorIndicator.style.backgroundColor = event.backgroundColor;
+    calendarInfo.appendChild(colorIndicator);
+    calendarInfo.appendChild(document.createTextNode(event.calendarName));
+    meta.appendChild(calendarInfo);
+
+    // Location
+    if (event.location) {
+      const location = document.createElement('div');
+      location.className = 'calendar-event-location';
+      location.textContent = `📍 ${event.location}`;
+      meta.appendChild(location);
+    }
+
+    detailsDiv.appendChild(summary);
+    detailsDiv.appendChild(meta);
+
+    // Actions
+    const actions = document.createElement('div');
+    actions.className = 'calendar-event-actions';
+
+    const viewLink = document.createElement('a');
+    viewLink.className = 'calendar-event-link';
+    viewLink.textContent = 'View';
+    viewLink.href = event.htmlLink || `https://calendar.google.com/calendar/event?eid=${event.id}`;
+    viewLink.target = '_blank';
+    viewLink.rel = 'noopener noreferrer';
+    actions.appendChild(viewLink);
+
+    item.appendChild(timeDiv);
+    item.appendChild(detailsDiv);
+    item.appendChild(actions);
+
+    return item;
+  }
+
+  /**
+   * Format time range for display
+   */
+  formatTimeRange(start, end) {
+    const startTime = start.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+    const endTime = end.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+    return `${startTime} - ${endTime}`;
+  }
+
+  /**
+   * Add calendar event indicators (colored dots) to a cell
+   */
+  addCalendarDotsToCell(cell, dateStr) {
+    // Only show dots if calendar is enabled
+    if (typeof googleCalendar === 'undefined') {
+      return;
+    }
+
+    const events = googleCalendar.getEventsForDate(dateStr);
+
+    // Filter to only enabled calendars
+    const enabledEvents = events.filter(event => {
+      const calendar = googleCalendar.calendarData.calendars[event.calendarId];
+      return calendar && calendar.enabled;
+    });
+
+    if (enabledEvents.length === 0) {
+      return;
+    }
+
+    // Create dots container
+    const dotsContainer = document.createElement('div');
+    dotsContainer.className = 'cell-calendar-dots';
+
+    // Show max 3 dots
+    const maxDots = 3;
+    const dotsToShow = Math.min(enabledEvents.length, maxDots);
+
+    for (let i = 0; i < dotsToShow; i++) {
+      const event = enabledEvents[i];
+      const dot = document.createElement('div');
+      dot.className = 'calendar-dot';
+      dot.style.backgroundColor = event.backgroundColor || '#039BE5';
+      dot.title = event.summary;
+      dotsContainer.appendChild(dot);
+    }
+
+    // Add "+N more" indicator if there are more events
+    if (enabledEvents.length > maxDots) {
+      const moreDot = document.createElement('div');
+      moreDot.className = 'calendar-dot more-indicator';
+      moreDot.textContent = '+';
+      moreDot.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+      moreDot.style.color = '#fff';
+      moreDot.style.fontSize = '8px';
+      moreDot.style.lineHeight = '3px';
+      moreDot.style.textAlign = 'center';
+      moreDot.style.fontWeight = 'bold';
+      moreDot.title = `+${enabledEvents.length - maxDots} more event${enabledEvents.length - maxDots !== 1 ? 's' : ''}`;
+      dotsContainer.appendChild(moreDot);
+    }
+
+    cell.appendChild(dotsContainer);
   }
 }
 

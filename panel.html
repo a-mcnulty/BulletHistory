@@ -11,6 +11,7 @@
     <!-- Date Header (fixed at top, scrolls horizontally) -->
     <div class="header-section">
       <div class="header-spacer">
+        <button id="calendarSettingsBtn" class="calendar-settings-btn" title="Calendar Settings">🗓️</button>
         <input type="text" id="searchInput" class="search-input" placeholder="Search domains...">
         <select id="sortMode" class="sort-dropdown">
           <option value="recent">Most Recent</option>
@@ -51,6 +52,16 @@
         <span class="expanded-title" id="expandedTitle"></span>
         <button class="close-btn" id="closeExpanded">×</button>
       </div>
+
+      <!-- Calendar Events Section -->
+      <div class="calendar-section" id="calendarSection" style="display: none;">
+        <div class="calendar-section-header" id="calendarSectionHeader">
+          <h3>Calendar Events</h3>
+          <button class="section-toggle" id="calendarSectionToggle">▼</button>
+        </div>
+        <div class="calendar-events-list" id="calendarEventsList"></div>
+      </div>
+
       <div class="url-list" id="urlList"></div>
     </div>
 
@@ -77,6 +88,42 @@
   <!-- URL Preview Tooltip -->
   <div class="url-preview-tooltip" id="urlPreviewTooltip"></div>
 
+  <!-- Calendar Settings Modal -->
+  <div class="calendar-settings-modal" id="calendarSettingsModal" style="display: none;">
+    <div class="modal-overlay" id="modalOverlay"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Calendar Settings</h2>
+        <button class="close-btn" id="closeCalendarModal">×</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Authentication Section -->
+        <div class="auth-section" id="authSection">
+          <div class="auth-status" id="authStatus">
+            <span class="auth-status-text">Not connected</span>
+          </div>
+          <button class="btn-primary" id="connectCalendarBtn">
+            Connect Google Calendar
+          </button>
+          <button class="btn-secondary" id="disconnectCalendarBtn" style="display: none;">
+            Disconnect
+          </button>
+        </div>
+
+        <!-- Calendar Selection -->
+        <div class="calendar-list-section" id="calendarListSection" style="display: none;">
+          <h3>Select Calendars to Display</h3>
+          <div class="calendar-list" id="calendarList"></div>
+          <button class="btn-secondary" id="refreshCalendarsBtn">
+            🔄 Refresh Calendar List
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="calendar.js"></script>
   <script src="panel.js"></script>
 </body>
 </html>
