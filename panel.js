@@ -70,6 +70,7 @@ class BulletHistory {
     this.setupZoomControls();
     this.setupResizeHandle();
     this.setupDateChangeDetection();
+    this.setupExpandedViewZoomHandler();
 
     // Show full history by default
     this.showFullHistory();
@@ -118,6 +119,23 @@ class BulletHistory {
         // Date hasn't changed, but still scroll to today in case TLD width changed
         this.scrollToToday();
       }
+    });
+  }
+
+  // Handle zoom changes to recalculate expanded view scroll area
+  setupExpandedViewZoomHandler() {
+    let resizeTimeout;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        const expandedView = document.getElementById('expandedView');
+        if (expandedView && expandedView.style.display !== 'none') {
+          // Force browser to recalculate scroll area
+          expandedView.style.overflow = 'hidden';
+          expandedView.offsetHeight; // Force reflow
+          expandedView.style.overflow = 'auto';
+        }
+      }, 100);
     });
   }
 
@@ -1354,11 +1372,20 @@ class BulletHistory {
 
     // Update or create pagination controls
     this.renderPaginationControls(totalPages, totalItems, currentPage);
+
+    // Force recalculation of scroll area to handle zoom/text wrapping
+    // This ensures the browser recognizes the full content height
+    requestAnimationFrame(() => {
+      expandedView.style.overflow = 'hidden';
+      expandedView.offsetHeight; // Force reflow
+      expandedView.style.overflow = 'auto';
+    });
   }
 
   // Render pagination controls
   renderPaginationControls(totalPages, totalItems, currentPage) {
     const expandedView = document.getElementById('expandedView');
+    const urlList = document.getElementById('urlList');
 
     // Remove existing pagination if present
     let pagination = document.getElementById('pagination');
@@ -1411,7 +1438,7 @@ class BulletHistory {
     pagination.appendChild(pageInfo);
     pagination.appendChild(nextBtn);
 
-    expandedView.appendChild(pagination);
+    urlList.appendChild(pagination);
   }
 
   // Create a URL item element
@@ -2303,7 +2330,10 @@ class BulletHistory {
     // Load saved expanded view height from storage
     chrome.storage.local.get(['expandedViewHeight'], (result) => {
       if (result.expandedViewHeight) {
-        expandedView.style.maxHeight = `${result.expandedViewHeight}px`;
+        expandedView.style.height = `${result.expandedViewHeight}px`;
+      } else {
+        // Default height if none saved - use 60% of viewport
+        expandedView.style.height = `${window.innerHeight * 0.6}px`;
       }
     });
 
@@ -2328,9 +2358,9 @@ class BulletHistory {
 
       if (isExpandedResizing) {
         const delta = startY - e.clientY; // Inverted because dragging up increases height
-        const newHeight = Math.max(150, Math.min(window.innerHeight * 0.8, startHeight + delta)); // Min 150px, max 80vh
+        const newHeight = Math.max(150, Math.min(window.innerHeight * 0.95, startHeight + delta)); // Min 150px, max 95vh
 
-        expandedView.style.maxHeight = `${newHeight}px`;
+        expandedView.style.height = `${newHeight}px`;
       }
     });
 
