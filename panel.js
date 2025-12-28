@@ -575,7 +575,7 @@ class BulletHistory {
   }
 
   // Update which rows/columns are visible and render them
-  updateVirtualGrid() {
+  updateVirtualGrid(forceUpdate = false) {
     const tldColumn = document.getElementById('tldColumn');
     const cellGridWrapper = document.getElementById('cellGridWrapper');
     const cellGrid = document.getElementById('cellGrid');
@@ -600,8 +600,9 @@ class BulletHistory {
     );
 
 
-    // Only update if range changed
+    // Only update if range changed (unless forced)
     if (
+      !forceUpdate &&
       startRow === this.virtualState.startRow &&
       endRow === this.virtualState.endRow &&
       startCol === this.virtualState.startCol &&
@@ -2777,8 +2778,8 @@ class BulletHistory {
         const endDate = this.dates[this.dates.length - 1];
         await googleCalendar.fetchEventsForDateRange(startDate, endDate);
 
-        // Refresh grid
-        this.updateVirtualGrid();
+        // Refresh grid (force update to re-render calendar dots)
+        this.updateVirtualGrid(true);
       } catch (error) {
         console.error('Failed to refresh calendars:', error);
         alert('Failed to refresh calendar list');
@@ -2874,8 +2875,8 @@ class BulletHistory {
         const endDate = this.dates[this.dates.length - 1];
         await googleCalendar.fetchEventsForDateRange(startDate, endDate);
 
-        // Refresh grid
-        this.updateVirtualGrid();
+        // Refresh grid (force update to re-render calendar dots)
+        this.updateVirtualGrid(true);
 
         // Refresh expanded view if open
         if (this.expandedViewType === 'cell' && this.selectedCell) {

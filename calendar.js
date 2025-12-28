@@ -206,12 +206,18 @@ class GoogleCalendarService {
       // Process and store calendar list
       const calendars = {};
       data.items.forEach(cal => {
+        // Preserve existing enabled state if calendar already exists
+        const existingCalendar = this.calendarData.calendars[cal.id];
+        const enabled = existingCalendar !== undefined
+          ? existingCalendar.enabled
+          : (cal.selected !== false); // Default to enabled if new calendar
+
         calendars[cal.id] = {
           id: cal.id,
           name: cal.summary,
           backgroundColor: cal.backgroundColor || '#039BE5',
           foregroundColor: cal.foregroundColor || '#ffffff',
-          enabled: cal.selected !== false // Default to enabled if selected
+          enabled: enabled
         };
       });
 
@@ -338,6 +344,9 @@ class GoogleCalendarService {
         timeMin.toISOString(),
         timeMax.toISOString()
       );
+
+      // Clear existing events before organizing new ones
+      this.calendarData.events = {};
 
       // Organize events by date
       this.organizeEventsByDate(events);
