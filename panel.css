@@ -139,8 +139,8 @@ body {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   grid-template-rows: repeat(10, 7px);
-  gap: 2px;
-  padding: 2px;
+  gap: 1px;
+  padding: 1px;
   align-items: center;
   align-content: end;
   justify-items: center;
@@ -150,10 +150,13 @@ body {
   background: #f5f5f5;
 }
 
+.calendar-event-column.col-today {
+  background: rgba(101, 147, 185, 0.08);
+}
+
 .calendar-event-dot-header {
   width: 7px;
   height: 7px;
-  border-radius: 50%;
   border: 0.5px solid rgba(255, 255, 255, 0.9);
   cursor: pointer;
   transition: transform 0.1s;
@@ -208,6 +211,7 @@ body {
 .month-cell {
   font-size: 12px;
   text-align: center;
+  white-space: nowrap;
 }
 
 /* Main Section */

@@ -493,6 +493,7 @@ class BulletHistory {
       // Calendar events column
       const eventColumn = document.createElement('div');
       eventColumn.className = 'calendar-event-column';
+      if (isToday) eventColumn.classList.add('col-today');
       eventColumn.dataset.date = dateStr;
       this.renderCalendarEventColumn(eventColumn, dateStr);
       calendarEventsRow.appendChild(eventColumn);
