@@ -93,6 +93,9 @@ chrome.alarms.create(CALENDAR_SYNC_ALARM, {
   periodInMinutes: 15
 });
 
+// Run initial sync on extension load
+syncCalendarEvents();
+
 // Handle alarm - sync calendar events
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === CALENDAR_SYNC_ALARM) {
@@ -104,6 +107,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
  * Sync calendar events for the current date range
  */
 async function syncCalendarEvents() {
+  console.log('Starting calendar sync...');
   try {
     // Check if user is authenticated
     const result = await chrome.storage.local.get(['calendarAuth']);
@@ -113,6 +117,7 @@ async function syncCalendarEvents() {
       console.log('Calendar sync skipped: not authenticated');
       return;
     }
+    console.log('Auth state:', authState);
 
     // Get auth token (non-interactive)
     const token = await new Promise((resolve) => {
@@ -252,6 +257,14 @@ async function syncCalendarEvents() {
     });
 
     console.log(`Calendar sync completed: ${allEvents.length} events from ${enabledCalendars.length} calendars`);
+
+    // Notify panel that calendar data has been updated
+    chrome.runtime.sendMessage({
+      type: 'calendarDataUpdated',
+      eventCount: allEvents.length
+    }).catch(() => {
+      // Panel might not be open, ignore error
+    });
   } catch (error) {
     console.error('Calendar sync failed:', error);
   }

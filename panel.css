@@ -123,6 +123,47 @@ body {
   color: #333;
 }
 
+.calendar-events-row {
+  display: flex;
+  gap: 3px;
+  padding: 4px 0;
+  min-height: 20px;
+  max-height: 48px;
+  overflow: hidden;
+  background-color: #f9f9f9;
+}
+
+.calendar-event-column {
+  width: 18px;
+  min-width: 18px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(10, 7px);
+  gap: 2px;
+  padding: 2px;
+  align-items: center;
+  align-content: end;
+  justify-items: center;
+}
+
+.calendar-event-column.col-hover {
+  background: #f5f5f5;
+}
+
+.calendar-event-dot-header {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 0.5px solid rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.calendar-event-dot-header:hover {
+  transform: scale(1.5);
+  z-index: 10;
+}
+
 .weekday-row {
   display: flex;
   gap: 3px;

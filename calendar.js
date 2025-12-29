@@ -317,9 +317,11 @@ class GoogleCalendarService {
    * Fetch events for a date range and organize by date
    */
   async fetchEventsForDateRange(startDate, endDate) {
+    console.log('fetchEventsForDateRange called:', startDate, 'to', endDate);
     try {
       const authStatus = await this.checkAuthStatus();
       if (!authStatus.authenticated) {
+        console.log('Not authenticated, skipping fetch');
         return;
       }
 
@@ -328,7 +330,10 @@ class GoogleCalendarService {
         .filter(cal => cal.enabled)
         .map(cal => cal.id);
 
+      console.log('Enabled calendars:', enabledCalendars);
+
       if (enabledCalendars.length === 0) {
+        console.log('No enabled calendars, skipping fetch');
         return;
       }
 
@@ -345,11 +350,15 @@ class GoogleCalendarService {
         timeMax.toISOString()
       );
 
+      console.log('Fetched events count:', events.length);
+
       // Clear existing events before organizing new ones
       this.calendarData.events = {};
 
       // Organize events by date
       this.organizeEventsByDate(events);
+
+      console.log('Events organized by date:', Object.keys(this.calendarData.events).length, 'dates with events');
 
       // Save to storage
       await this.saveCalendarData();

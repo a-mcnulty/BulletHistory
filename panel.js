@@ -76,6 +76,18 @@ class BulletHistory {
     await this.initializeCalendar();
     this.setupCalendarUI();
 
+    // Re-render date header to show calendar events now that data is loaded
+    this.renderDateHeader();
+
+    // Listen for calendar data updates from background sync
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message.type === 'calendarDataUpdated') {
+        console.log('Calendar data updated, refreshing UI');
+        // Reload calendar data and refresh UI
+        this.refreshCalendarUI();
+      }
+    });
+
     // Show full history by default
     this.showFullHistory();
 
@@ -422,10 +434,12 @@ class BulletHistory {
   // Render date header
   renderDateHeader() {
     const monthRow = document.getElementById('monthRow');
+    const calendarEventsRow = document.getElementById('calendarEventsRow');
     const weekdayRow = document.getElementById('weekdayRow');
     const dayRow = document.getElementById('dayRow');
 
     monthRow.innerHTML = '';
+    calendarEventsRow.innerHTML = '';
     weekdayRow.innerHTML = '';
     dayRow.innerHTML = '';
 
@@ -475,6 +489,13 @@ class BulletHistory {
       } else {
         monthSpan++;
       }
+
+      // Calendar events column
+      const eventColumn = document.createElement('div');
+      eventColumn.className = 'calendar-event-column';
+      eventColumn.dataset.date = dateStr;
+      this.renderCalendarEventColumn(eventColumn, dateStr);
+      calendarEventsRow.appendChild(eventColumn);
 
       // Weekday letter
       const weekdayCell = document.createElement('div');
@@ -726,9 +747,6 @@ class BulletHistory {
           cell.dataset.count = 0;
         }
 
-        // Add calendar event indicators (colored dots)
-        this.addCalendarDotsToCell(cell, dateStr);
-
         cellRow.appendChild(cell);
       }
 
@@ -898,6 +916,15 @@ class BulletHistory {
           dayCell.classList.add('col-hover');
         }
 
+        // Highlight the calendar event column
+        const calendarEventsRow = document.getElementById('calendarEventsRow');
+        if (calendarEventsRow) {
+          const eventColumns = calendarEventsRow.children;
+          if (eventColumns[colIndex]) {
+            eventColumns[colIndex].classList.add('col-hover');
+          }
+        }
+
         // Highlight all cells in the column
         const columnCells = cellGrid.querySelectorAll(`.cell[data-col-index="${colIndex}"]`);
         columnCells.forEach(cell => cell.classList.add('col-hover'));
@@ -931,6 +958,15 @@ class BulletHistory {
         const dayCell = dayRow.querySelector(`.day-cell[data-col-index="${colIndex}"]`);
         if (dayCell) {
           dayCell.classList.remove('col-hover');
+        }
+
+        // Remove highlight from calendar event column
+        const calendarEventsRow = document.getElementById('calendarEventsRow');
+        if (calendarEventsRow) {
+          const eventColumns = calendarEventsRow.children;
+          if (eventColumns[colIndex]) {
+            eventColumns[colIndex].classList.remove('col-hover');
+          }
         }
 
         // Remove highlight from column cells
@@ -2778,6 +2814,9 @@ class BulletHistory {
         const endDate = this.dates[this.dates.length - 1];
         await googleCalendar.fetchEventsForDateRange(startDate, endDate);
 
+        // Refresh calendar events in header
+        this.renderDateHeader();
+
         // Refresh grid (force update to re-render calendar dots)
         this.updateVirtualGrid(true);
       } catch (error) {
@@ -2874,6 +2913,9 @@ class BulletHistory {
         const startDate = this.dates[0];
         const endDate = this.dates[this.dates.length - 1];
         await googleCalendar.fetchEventsForDateRange(startDate, endDate);
+
+        // Refresh calendar events in header
+        this.renderDateHeader();
 
         // Refresh grid (force update to re-render calendar dots)
         this.updateVirtualGrid(true);
@@ -3046,10 +3088,27 @@ class BulletHistory {
   }
 
   /**
-   * Add calendar event indicators (colored dots) to a cell
+   * Refresh calendar UI after background sync updates
    */
-  addCalendarDotsToCell(cell, dateStr) {
-    // Only show dots if calendar is enabled
+  async refreshCalendarUI() {
+    // Reload calendar data from storage
+    await googleCalendar.loadCalendarData();
+
+    // Refresh date header to show new events
+    this.renderDateHeader();
+
+    // Refresh expanded view if it's showing calendar events
+    if (this.expandedViewType === 'cell' && this.selectedCell) {
+      const date = this.selectedCell.dataset.date;
+      this.renderCalendarEventsForDate(date);
+    }
+  }
+
+  /**
+   * Render calendar events for a specific date column in the header
+   */
+  renderCalendarEventColumn(eventColumn, dateStr) {
+    // Only show events if calendar integration is available
     if (typeof googleCalendar === 'undefined') {
       return;
     }
@@ -3066,39 +3125,60 @@ class BulletHistory {
       return;
     }
 
-    // Create dots container
-    const dotsContainer = document.createElement('div');
-    dotsContainer.className = 'cell-calendar-dots';
+    // Calculate total rows needed (max 10 rows = 20 events)
+    const totalRows = Math.min(Math.ceil(enabledEvents.length / 2), 10);
 
-    // Show max 3 dots
-    const maxDots = 3;
-    const dotsToShow = Math.min(enabledEvents.length, maxDots);
-
-    for (let i = 0; i < dotsToShow; i++) {
+    // Render all events as dots in a 2-column grid, filling bottom-up, left-to-right
+    for (let i = 0; i < enabledEvents.length; i++) {
       const event = enabledEvents[i];
       const dot = document.createElement('div');
-      dot.className = 'calendar-dot';
+      dot.className = 'calendar-event-dot-header';
       dot.style.backgroundColor = event.backgroundColor || '#039BE5';
-      dot.title = event.summary;
-      dotsContainer.appendChild(dot);
-    }
 
-    // Add "+N more" indicator if there are more events
-    if (enabledEvents.length > maxDots) {
-      const moreDot = document.createElement('div');
-      moreDot.className = 'calendar-dot more-indicator';
-      moreDot.textContent = '+';
-      moreDot.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-      moreDot.style.color = '#fff';
-      moreDot.style.fontSize = '8px';
-      moreDot.style.lineHeight = '3px';
-      moreDot.style.textAlign = 'center';
-      moreDot.style.fontWeight = 'bold';
-      moreDot.title = `+${enabledEvents.length - maxDots} more event${enabledEvents.length - maxDots !== 1 ? 's' : ''}`;
-      dotsContainer.appendChild(moreDot);
-    }
+      // Calculate grid position: fill bottom-up, left column first
+      // We have 10 rows total (rows 1-10)
+      // Event 0 -> row 10, col 1 (bottom left)
+      // Event 1 -> row 10, col 2 (bottom right)
+      // Event 2 -> row 9, col 1
+      // Event 3 -> row 9, col 2
+      const rowFromBottom = Math.floor(i / 2);
+      const actualRow = 10 - rowFromBottom;  // Count from row 10 (bottom)
+      const col = (i % 2) + 1;
 
-    cell.appendChild(dotsContainer);
+      dot.style.gridRow = `${actualRow}`;
+      dot.style.gridColumn = `${col}`;
+
+      console.log(`Event ${i}: "${event.summary}" -> row ${actualRow}, col ${col}`);
+
+      // Add hover handler to show event name in tooltip
+      dot.addEventListener('mouseenter', (e) => {
+        const tooltip = document.getElementById('tooltip');
+        tooltip.textContent = event.summary;
+        tooltip.classList.add('visible');
+
+        const rect = dot.getBoundingClientRect();
+        tooltip.style.left = `${rect.left + rect.width / 2}px`;
+        tooltip.style.top = `${rect.bottom + 5}px`;
+      });
+
+      dot.addEventListener('mouseleave', () => {
+        const tooltip = document.getElementById('tooltip');
+        tooltip.classList.remove('visible');
+      });
+
+      // Add click handler to show event details
+      dot.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // Find the corresponding day cell and trigger its click
+        const colIndex = Array.from(eventColumn.parentElement.children).indexOf(eventColumn);
+        const dayCell = document.querySelector(`.day-cell[data-col-index="${colIndex}"]`);
+        if (dayCell) {
+          dayCell.click();
+        }
+      });
+
+      eventColumn.appendChild(dot);
+    }
   }
 }
 
