@@ -493,9 +493,14 @@ class BulletHistory {
       // Calendar events column
       const eventColumn = document.createElement('div');
       eventColumn.className = 'calendar-event-column';
-      if (isToday) eventColumn.classList.add('col-today');
       eventColumn.dataset.date = dateStr;
-      this.renderCalendarEventColumn(eventColumn, dateStr);
+
+      // Only add highlighting classes if there are events
+      const hasEvents = this.renderCalendarEventColumn(eventColumn, dateStr);
+      if (hasEvents && isToday) {
+        eventColumn.classList.add('col-today');
+      }
+
       calendarEventsRow.appendChild(eventColumn);
 
       // Weekday letter
@@ -677,6 +682,15 @@ class BulletHistory {
       tldRow.style.top = `${rowIndex * this.rowHeight + 8}px`; // Add 8px padding
       tldRow.style.width = '100%';
 
+      // Favicon
+      const favicon = document.createElement('img');
+      favicon.className = 'tld-favicon';
+      favicon.src = `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
+      favicon.alt = '';
+      favicon.width = 16;
+      favicon.height = 16;
+      tldRow.appendChild(favicon);
+
       // Domain name span
       const domainSpan = document.createElement('span');
       domainSpan.className = 'tld-name';
@@ -765,11 +779,24 @@ class BulletHistory {
     let isGridScrolling = false;
     let isTldScrolling = false;
 
+    // Helper function to clear all hover states
+    const clearAllHoverStates = () => {
+      // Clear column hover states
+      document.querySelectorAll('.col-hover').forEach(el => {
+        el.classList.remove('col-hover');
+      });
+      // Clear row hover states
+      document.querySelectorAll('.row-hover').forEach(el => {
+        el.classList.remove('row-hover');
+      });
+    };
+
     // Sync horizontal scroll: grid -> header
     // Sync vertical scroll: grid -> tld column
     cellGridWrapper.addEventListener('scroll', () => {
       if (isHeaderScrolling || isTldScrolling) return;
       isGridScrolling = true;
+      clearAllHoverStates(); // Clear hover states when scrolling
       dateHeader.scrollLeft = cellGridWrapper.scrollLeft;
       tldColumn.scrollTop = cellGridWrapper.scrollTop;
       requestAnimationFrame(() => {
@@ -781,6 +808,7 @@ class BulletHistory {
     dateHeader.addEventListener('scroll', () => {
       if (isGridScrolling) return;
       isHeaderScrolling = true;
+      clearAllHoverStates(); // Clear hover states when scrolling
       cellGridWrapper.scrollLeft = dateHeader.scrollLeft;
       requestAnimationFrame(() => {
         isHeaderScrolling = false;
@@ -791,6 +819,7 @@ class BulletHistory {
     tldColumn.addEventListener('scroll', () => {
       if (isGridScrolling) return;
       isTldScrolling = true;
+      clearAllHoverStates(); // Clear hover states when scrolling
       cellGridWrapper.scrollTop = tldColumn.scrollTop;
       requestAnimationFrame(() => {
         isTldScrolling = false;
@@ -917,11 +946,11 @@ class BulletHistory {
           dayCell.classList.add('col-hover');
         }
 
-        // Highlight the calendar event column
+        // Highlight the calendar event column (only if it has events)
         const calendarEventsRow = document.getElementById('calendarEventsRow');
         if (calendarEventsRow) {
           const eventColumns = calendarEventsRow.children;
-          if (eventColumns[colIndex]) {
+          if (eventColumns[colIndex] && eventColumns[colIndex].children.length > 0) {
             eventColumns[colIndex].classList.add('col-hover');
           }
         }
@@ -3111,7 +3140,7 @@ class BulletHistory {
   renderCalendarEventColumn(eventColumn, dateStr) {
     // Only show events if calendar integration is available
     if (typeof googleCalendar === 'undefined') {
-      return;
+      return false;
     }
 
     const events = googleCalendar.getEventsForDate(dateStr);
@@ -3123,11 +3152,64 @@ class BulletHistory {
     });
 
     if (enabledEvents.length === 0) {
-      return;
+      return false;
     }
+
+    // Sort events chronologically (all-day first, then by start time)
+    const sortedEvents = [...enabledEvents].sort((a, b) => {
+      if (a.isAllDay && !b.isAllDay) return -1;
+      if (!a.isAllDay && b.isAllDay) return 1;
+
+      const aTime = a.start.dateTime || a.start.date;
+      const bTime = b.start.dateTime || b.start.date;
+      return new Date(aTime).getTime() - new Date(bTime).getTime();
+    });
+
+    // Add hover handler to show all events for this day
+    eventColumn.addEventListener('mouseenter', (e) => {
+      const tooltip = document.getElementById('tooltip');
+
+      // Build tooltip content with all events
+      let tooltipText = '';
+      sortedEvents.forEach((event, idx) => {
+        if (idx > 0) tooltipText += '\n';
+
+        if (event.isAllDay) {
+          tooltipText += `All day - ${event.summary}`;
+        } else {
+          const start = new Date(event.start.dateTime);
+          const end = new Date(event.end.dateTime);
+          const startTime = start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+          const endTime = end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+          tooltipText += `${startTime}-${endTime} - ${event.summary}`;
+        }
+      });
+
+      tooltip.textContent = tooltipText;
+      tooltip.style.whiteSpace = 'pre-line';
+      tooltip.classList.add('visible');
+
+      const rect = eventColumn.getBoundingClientRect();
+      tooltip.style.left = `${rect.left + rect.width / 2}px`;
+      tooltip.style.top = `${rect.bottom + 5}px`;
+    });
+
+    eventColumn.addEventListener('mouseleave', () => {
+      const tooltip = document.getElementById('tooltip');
+      tooltip.classList.remove('visible');
+      tooltip.style.whiteSpace = 'normal';
+    });
 
     // Calculate total rows needed (max 10 rows = 20 events)
     const totalRows = Math.min(Math.ceil(enabledEvents.length / 2), 10);
+
+    // Set the grid to only have the rows we need
+    eventColumn.style.gridTemplateRows = `repeat(${totalRows}, 7px)`;
+
+    // Set height to match the grid content (rows * 7px + gap between rows + padding)
+    const height = totalRows * 7 + (totalRows - 1) * 1 + 2; // 7px per row + 1px gap + 2px padding
+    eventColumn.style.height = `${height}px`;
+    eventColumn.style.alignSelf = 'end';
 
     // Render all events as dots in a 2-column grid, filling bottom-up, left-to-right
     for (let i = 0; i < enabledEvents.length; i++) {
@@ -3137,19 +3219,16 @@ class BulletHistory {
       dot.style.backgroundColor = event.backgroundColor || '#039BE5';
 
       // Calculate grid position: fill bottom-up, left column first
-      // We have 10 rows total (rows 1-10)
-      // Event 0 -> row 10, col 1 (bottom left)
-      // Event 1 -> row 10, col 2 (bottom right)
-      // Event 2 -> row 9, col 1
-      // Event 3 -> row 9, col 2
+      // Event 0 -> bottom row, col 1
+      // Event 1 -> bottom row, col 2
+      // Event 2 -> second from bottom, col 1
+      // Event 3 -> second from bottom, col 2
       const rowFromBottom = Math.floor(i / 2);
-      const actualRow = 10 - rowFromBottom;  // Count from row 10 (bottom)
+      const actualRow = totalRows - rowFromBottom;  // Count from totalRows (bottom)
       const col = (i % 2) + 1;
 
       dot.style.gridRow = `${actualRow}`;
       dot.style.gridColumn = `${col}`;
-
-      console.log(`Event ${i}: "${event.summary}" -> row ${actualRow}, col ${col}`);
 
       // Add hover handler to show event name in tooltip
       dot.addEventListener('mouseenter', (e) => {
@@ -3180,6 +3259,8 @@ class BulletHistory {
 
       eventColumn.appendChild(dot);
     }
+
+    return true; // Events were rendered
   }
 }
 

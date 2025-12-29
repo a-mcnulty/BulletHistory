@@ -126,7 +126,6 @@ body {
 .calendar-events-row {
   display: flex;
   gap: 3px;
-  padding: 4px 0;
   min-height: 20px;
   max-height: 48px;
   overflow: hidden;
@@ -147,11 +146,11 @@ body {
 }
 
 .calendar-event-column.col-hover {
-  background: #f5f5f5;
+  background: #e5e5e5;
 }
 
 .calendar-event-column.col-today {
-  background: rgba(101, 147, 185, 0.08);
+  background: rgba(101, 147, 185, 0.18);
 }
 
 .calendar-event-dot-header {
@@ -160,6 +159,7 @@ body {
   border: 0.5px solid rgba(255, 255, 255, 0.9);
   cursor: pointer;
   transition: transform 0.1s;
+  border-radius: 50%;
 }
 
 .calendar-event-dot-header:hover {
@@ -200,12 +200,12 @@ body {
 
 .weekday-cell.col-hover,
 .day-cell.col-hover {
-  background: #f5f5f5;
+  background: #e5e5e5;
 }
 
 .weekday-cell.col-today,
 .day-cell.col-today {
-  background: rgba(101, 147, 185, 0.08);
+  background: rgba(101, 147, 185, 0.18);
 }
 
 .month-cell {
@@ -273,11 +273,18 @@ body {
   font-size: 12px;
   flex-shrink: 0;
   cursor: pointer;
+  gap: 6px;
+}
+
+.tld-favicon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
 }
 
 .tld-row:hover,
 .tld-row.row-hover {
-  background: #f5f5f5;
+  background: #e5e5e5;
 }
 
 .tld-name {
@@ -340,7 +347,7 @@ body {
   bottom: -1.5px;
   left: var(--today-col-left);
   width: 20px;
-  background: rgba(101, 147, 185, 0.08);
+  background: rgba(101, 147, 185, 0.18);
   pointer-events: none;
   z-index: 1;
 }
