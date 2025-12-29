@@ -146,7 +146,7 @@ body {
 }
 
 .calendar-event-column.col-hover {
-  background: #e5e5e5;
+  background: #f0f0f0;
 }
 
 .calendar-event-column.col-today {
@@ -200,7 +200,7 @@ body {
 
 .weekday-cell.col-hover,
 .day-cell.col-hover {
-  background: #e5e5e5;
+  background: #f0f0f0;
 }
 
 .weekday-cell.col-today,
@@ -284,7 +284,7 @@ body {
 
 .tld-row:hover,
 .tld-row.row-hover {
-  background: #e5e5e5;
+  background: #f0f0f0;
 }
 
 .tld-name {
@@ -314,7 +314,7 @@ body {
 }
 
 .cell-row.row-hover {
-  background: rgba(0, 0, 0, 0.03);
+  background: rgba(0, 0, 0, 0.06);
 }
 
 /* Cell Grid Wrapper (scrollable) */
@@ -393,7 +393,7 @@ body {
   left: 0;
   right: 0;
   height: 3px;
-  background: rgba(0, 0, 0, 0.03);
+  background: rgba(0, 0, 0, 0.06);
   top: -4.5px;
   pointer-events: none;
 }
