@@ -3165,40 +3165,68 @@ class BulletHistory {
       return new Date(aTime).getTime() - new Date(bTime).getTime();
     });
 
+    // Function to position tooltip
+    const positionTooltip = () => {
+      const tooltip = document.getElementById('tooltip');
+      if (!tooltip.classList.contains('visible')) return;
+
+      const rect = eventColumn.getBoundingClientRect();
+      tooltip.style.left = `${rect.left - tooltip.offsetWidth - 10}px`;
+      tooltip.style.top = `${rect.top}px`;
+    };
+
     // Add hover handler to show all events for this day
     eventColumn.addEventListener('mouseenter', (e) => {
       const tooltip = document.getElementById('tooltip');
 
-      // Build tooltip content with all events
-      let tooltipText = '';
+      // Build tooltip content with all events using HTML
+      let tooltipHTML = '';
       sortedEvents.forEach((event, idx) => {
-        if (idx > 0) tooltipText += '\n';
+        const color = event.backgroundColor || '#039BE5';
+        const dotStyle = `width: 8px; height: 8px; border-radius: 50%; background-color: ${color}; flex-shrink: 0; margin-top: 4px;`;
+        const eventStyle = `display: flex; gap: 8px; margin-bottom: 8px;`;
 
         if (event.isAllDay) {
-          tooltipText += `All day - ${event.summary}`;
+          tooltipHTML += `<div style="${eventStyle}"><div style="${dotStyle}"></div><div>All day<br>${event.summary}</div></div>`;
         } else {
           const start = new Date(event.start.dateTime);
           const end = new Date(event.end.dateTime);
           const startTime = start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
           const endTime = end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-          tooltipText += `${startTime}-${endTime} - ${event.summary}`;
+          tooltipHTML += `<div style="${eventStyle}"><div style="${dotStyle}"></div><div>${startTime}-${endTime}<br>${event.summary}</div></div>`;
         }
       });
 
-      tooltip.textContent = tooltipText;
-      tooltip.style.whiteSpace = 'pre-line';
+      tooltip.innerHTML = tooltipHTML;
+      tooltip.style.whiteSpace = 'normal';
+      tooltip.style.maxWidth = '200px';
       tooltip.classList.add('visible');
 
-      const rect = eventColumn.getBoundingClientRect();
-      tooltip.style.left = `${rect.left + rect.width / 2}px`;
-      tooltip.style.top = `${rect.bottom + 5}px`;
+      // Wait for DOM to update with new content size, then position
+      requestAnimationFrame(() => {
+        positionTooltip();
+      });
+
+      // Store reference to this column for scroll repositioning
+      eventColumn.dataset.tooltipActive = 'true';
     });
 
     eventColumn.addEventListener('mouseleave', () => {
       const tooltip = document.getElementById('tooltip');
       tooltip.classList.remove('visible');
       tooltip.style.whiteSpace = 'normal';
+      delete eventColumn.dataset.tooltipActive;
     });
+
+    // Add scroll handler to reposition tooltip
+    const dateHeaderScroll = document.getElementById('dateHeader');
+    const scrollHandler = () => {
+      if (eventColumn.dataset.tooltipActive === 'true') {
+        positionTooltip();
+      }
+    };
+    dateHeaderScroll.addEventListener('scroll', scrollHandler);
+    document.getElementById('cellGridWrapper').addEventListener('scroll', scrollHandler);
 
     // Calculate total rows needed (max 10 rows = 20 events)
     const totalRows = Math.min(Math.ceil(enabledEvents.length / 2), 10);
@@ -3229,22 +3257,6 @@ class BulletHistory {
 
       dot.style.gridRow = `${actualRow}`;
       dot.style.gridColumn = `${col}`;
-
-      // Add hover handler to show event name in tooltip
-      dot.addEventListener('mouseenter', (e) => {
-        const tooltip = document.getElementById('tooltip');
-        tooltip.textContent = event.summary;
-        tooltip.classList.add('visible');
-
-        const rect = dot.getBoundingClientRect();
-        tooltip.style.left = `${rect.left + rect.width / 2}px`;
-        tooltip.style.top = `${rect.bottom + 5}px`;
-      });
-
-      dot.addEventListener('mouseleave', () => {
-        const tooltip = document.getElementById('tooltip');
-        tooltip.classList.remove('visible');
-      });
 
       // Add click handler to show event details
       dot.addEventListener('click', (e) => {
