@@ -378,12 +378,16 @@ class GoogleCalendarService {
       // Determine if all-day event
       const isAllDay = !event.start.dateTime;
 
-      // Get start date
+      // Get start date in local timezone (not UTC)
       let startDate;
       if (isAllDay) {
         startDate = event.start.date;
       } else {
-        startDate = new Date(event.start.dateTime).toISOString().split('T')[0];
+        const startDateTime = new Date(event.start.dateTime);
+        const year = startDateTime.getFullYear();
+        const month = String(startDateTime.getMonth() + 1).padStart(2, '0');
+        const day = String(startDateTime.getDate()).padStart(2, '0');
+        startDate = `${year}-${month}-${day}`;
       }
 
       // Initialize date array if needed

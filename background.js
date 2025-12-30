@@ -215,12 +215,16 @@ async function syncCalendarEvents() {
       // Determine if all-day event
       const isAllDay = !event.start.dateTime;
 
-      // Get start date
+      // Get start date in local timezone (not UTC)
       let startDateStr;
       if (isAllDay) {
         startDateStr = event.start.date;
       } else {
-        startDateStr = new Date(event.start.dateTime).toISOString().split('T')[0];
+        const startDate = new Date(event.start.dateTime);
+        const year = startDate.getFullYear();
+        const month = String(startDate.getMonth() + 1).padStart(2, '0');
+        const day = String(startDate.getDate()).padStart(2, '0');
+        startDateStr = `${year}-${month}-${day}`;
       }
 
       // Initialize date array if needed
