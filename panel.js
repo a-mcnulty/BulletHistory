@@ -88,8 +88,8 @@ class BulletHistory {
       }
     });
 
-    // Show full history by default
-    this.showFullHistory();
+    // Don't show expanded view on load
+    // User can open it by clicking a cell or bottom menu buttons
 
     // Scroll to show today (not future days)
     this.scrollToToday();
@@ -1160,6 +1160,7 @@ class BulletHistory {
     this.renderUrlList();
 
     expandedView.style.display = 'block';
+    this.updateExpandedViewPadding();
   }
 
   // Show domain view with all URLs grouped by date
@@ -1229,6 +1230,7 @@ class BulletHistory {
     this.renderUrlList();
 
     expandedView.style.display = 'block';
+    this.updateExpandedViewPadding();
   }
 
   // Show expanded view with URLs
@@ -1337,6 +1339,7 @@ class BulletHistory {
     this.renderCalendarEventsForDate(date);
 
     expandedView.style.display = 'block';
+    this.updateExpandedViewPadding();
   }
 
   // Get the display name for the current view type
@@ -1806,10 +1809,27 @@ class BulletHistory {
     return meta ? meta.getAttribute('content') : null;
   }
 
+  // Update main section to account for expanded view height
+  updateExpandedViewPadding() {
+    requestAnimationFrame(() => {
+      const expandedView = document.getElementById('expandedView');
+      const mainSection = document.querySelector('.main-section');
+
+      if (expandedView.style.display === 'block') {
+        const expandedHeight = expandedView.offsetHeight;
+        mainSection.style.paddingBottom = `${expandedHeight}px`;
+      } else {
+        mainSection.style.paddingBottom = '0';
+      }
+    });
+  }
+
   // Close expanded view
   closeExpandedView() {
     const expandedView = document.getElementById('expandedView');
     expandedView.style.display = 'none';
+
+    this.updateExpandedViewPadding();
 
     if (this.selectedCell) {
       this.selectedCell.classList.remove('selected');
@@ -2412,6 +2432,10 @@ class BulletHistory {
         // Default height if none saved - use 60% of viewport
         expandedView.style.height = `${window.innerHeight * 0.6}px`;
       }
+      // Update padding if expanded view is visible
+      if (expandedView.style.display === 'block') {
+        this.updateExpandedViewPadding();
+      }
     });
 
     expandedHandle.addEventListener('mousedown', (e) => {
@@ -2438,6 +2462,7 @@ class BulletHistory {
         const newHeight = Math.max(150, Math.min(window.innerHeight * 0.95, startHeight + delta)); // Min 150px, max 95vh
 
         expandedView.style.height = `${newHeight}px`;
+        this.updateExpandedViewPadding();
       }
     });
 
@@ -2566,6 +2591,7 @@ class BulletHistory {
       this.renderUrlList();
 
       expandedView.style.display = 'block';
+      this.updateExpandedViewPadding();
     });
   }
 
@@ -2636,6 +2662,7 @@ class BulletHistory {
       this.renderUrlList();
 
       expandedView.style.display = 'block';
+      this.updateExpandedViewPadding();
     });
   }
 

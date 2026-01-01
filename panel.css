@@ -100,6 +100,7 @@ body {
   overflow-y: hidden;
   scrollbar-width: none; /* Firefox */
   will-change: scroll-position;
+  padding-right: 8px; /* Account for cell-grid-wrapper vertical scrollbar */
 }
 
 .date-header::-webkit-scrollbar {
@@ -320,9 +321,30 @@ body {
 /* Cell Grid Wrapper (scrollable) */
 .cell-grid-wrapper {
   flex: 1;
-  overflow: auto;
+  overflow-x: scroll; /* Always show horizontal scrollbar */
+  overflow-y: auto;
   background: #fff;
   will-change: scroll-position;
+  scrollbar-width: thin; /* Firefox - use thin scrollbars */
+}
+
+/* Webkit browsers - style scrollbars to be minimal */
+.cell-grid-wrapper::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.cell-grid-wrapper::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.cell-grid-wrapper::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.cell-grid-wrapper::-webkit-scrollbar-thumb:hover {
+  background: #555;
 }
 
 .cell-grid {
