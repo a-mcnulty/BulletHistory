@@ -495,9 +495,14 @@ class BulletHistory {
       eventColumn.className = 'calendar-event-column';
       eventColumn.dataset.date = dateStr;
 
-      // Only add highlighting classes if there are events
+      // Render events (if any)
       const hasEvents = this.renderCalendarEventColumn(eventColumn, dateStr);
-      if (hasEvents && isToday) {
+
+      // Set empty columns to zero height to save vertical space
+      if (!hasEvents) {
+        eventColumn.style.height = '0';
+        eventColumn.style.padding = '0';
+      } else if (isToday) {
         eventColumn.classList.add('col-today');
       }
 
