@@ -1546,7 +1546,7 @@ class BulletHistory {
     if (this.expandedViewType === 'bookmarks') {
       const manageBtn = document.createElement('button');
       manageBtn.className = 'icon-btn manage';
-      manageBtn.textContent = 'manage';
+      manageBtn.textContent = '⚙️';
       manageBtn.title = 'Manage bookmark in Chrome';
       manageBtn.addEventListener('click', () => {
         // Open Chrome's bookmark manager to the specific folder
@@ -1559,7 +1559,7 @@ class BulletHistory {
       // For other views: Show delete button
       const deleteBtn = document.createElement('button');
       deleteBtn.className = 'icon-btn delete';
-      deleteBtn.textContent = 'delete';
+      deleteBtn.textContent = '🗑️';
       deleteBtn.title = 'Delete from history';
       deleteBtn.addEventListener('click', () => this.deleteUrl(urlData.url, domain, date));
       actionsDiv.appendChild(deleteBtn);
@@ -1567,7 +1567,7 @@ class BulletHistory {
 
     const bookmarkBtn = document.createElement('button');
     bookmarkBtn.className = 'icon-btn bookmark';
-    bookmarkBtn.textContent = 'save';
+    bookmarkBtn.textContent = '⭐';
     bookmarkBtn.title = 'Toggle bookmark';
     bookmarkBtn.addEventListener('click', () => this.toggleBookmark(urlData.url, urlData.title, bookmarkBtn));
 
@@ -1605,8 +1605,23 @@ class BulletHistory {
     urlLink.target = '_blank';
     urlLink.rel = 'noopener noreferrer';
 
+    // Add timestamp
+    const timestamp = document.createElement('span');
+    timestamp.className = 'url-timestamp';
+    const lastVisitDate = new Date(urlData.lastVisit);
+
+    // Format as HH:MM:SS
+    const hours = String(lastVisitDate.getHours()).padStart(2, '0');
+    const minutes = String(lastVisitDate.getMinutes()).padStart(2, '0');
+    const seconds = String(lastVisitDate.getSeconds()).padStart(2, '0');
+    const timeText = `${hours}:${minutes}:${seconds}`;
+
+    timestamp.textContent = timeText;
+    timestamp.title = lastVisitDate.toLocaleString();
+
     rightDiv.appendChild(favicon);
     rightDiv.appendChild(urlLink);
+    rightDiv.appendChild(timestamp);
 
     urlItem.appendChild(leftDiv);
     urlItem.appendChild(rightDiv);
@@ -1689,7 +1704,14 @@ class BulletHistory {
           </div>`}
           <div class="url-preview-meta-item">
             <span class="url-preview-meta-label">${timeLabel}</span>
-            <span class="url-preview-meta-value">${timeAgo}</span>
+            <span class="url-preview-meta-value">${timeAgo} (${lastVisitDate.toLocaleString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit'
+            })})</span>
           </div>
         </div>
       </div>
@@ -1725,7 +1747,14 @@ class BulletHistory {
           </div>`}
           <div class="url-preview-meta-item">
             <span class="url-preview-meta-label">${timeLabel}</span>
-            <span class="url-preview-meta-value">${timeAgo}</span>
+            <span class="url-preview-meta-value">${timeAgo} (${lastVisitDate.toLocaleString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit'
+            })})</span>
           </div>
         </div>
       </div>
@@ -2682,7 +2711,7 @@ class BulletHistory {
 
     const restoreBtn = document.createElement('button');
     restoreBtn.className = 'icon-btn restore';
-    restoreBtn.textContent = 'restore';
+    restoreBtn.textContent = '⟲';
     restoreBtn.title = 'Reopen this tab';
     restoreBtn.addEventListener('click', async () => {
       // Open the URL in a new tab
@@ -2700,7 +2729,7 @@ class BulletHistory {
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'icon-btn delete';
-    deleteBtn.textContent = 'delete';
+    deleteBtn.textContent = '🗑️';
     deleteBtn.title = 'Remove from list';
     deleteBtn.addEventListener('click', async () => {
       // Remove this item from storage
