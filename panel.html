@@ -11,7 +11,13 @@
     <!-- Date Header (fixed at top, scrolls horizontally) -->
     <div class="header-section">
       <div class="header-spacer">
-        <button id="calendarSettingsBtn" class="calendar-settings-btn" title="Calendar Settings">🗓️</button>
+        <div class="header-controls">
+          <button id="calendarSettingsBtn" class="calendar-settings-btn" title="Calendar Settings">🗓️</button>
+          <div class="view-toggle" id="viewToggle">
+            <button class="view-toggle-btn" data-view="hour">Hour</button>
+            <button class="view-toggle-btn active" data-view="day">Day</button>
+          </div>
+        </div>
         <input type="text" id="searchInput" class="search-input" placeholder="Search domains...">
         <select id="sortMode" class="sort-dropdown">
           <option value="recent">Most Recent</option>

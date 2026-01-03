@@ -917,22 +917,76 @@ body {
   white-space: nowrap;
 }
 
+/* ===== HEADER CONTROLS (Calendar + Toggle) ===== */
+.header-controls {
+  display: flex;
+  gap: 4px;
+  align-items: stretch;
+  height: 26px;
+}
+
 /* ===== CALENDAR SETTINGS BUTTON ===== */
 .calendar-settings-btn {
   background: none;
   border: 1px solid #e0e0e0;
   cursor: pointer;
-  padding: 4px;
+  padding: 0 6px;
   font-size: 12px;
   border-radius: 3px;
   transition: all 0.15s ease;
   color: #666;
-  width: 100%;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
 }
 
 .calendar-settings-btn:hover {
   border-color: #999;
   background: #f5f5f5;
+}
+
+/* ===== VIEW TOGGLE (Hour/Day) ===== */
+.view-toggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #fff;
+  height: 26px;
+  flex: 2;
+}
+
+.view-toggle-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: #666;
+  transition: all 0.15s ease;
+  border-right: 1px solid #e0e0e0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  flex: 1;
+}
+
+.view-toggle-btn:last-child {
+  border-right: none;
+}
+
+.view-toggle-btn:hover {
+  background: #f5f5f5;
+}
+
+.view-toggle-btn.active {
+  background: #4285f4;
+  color: white;
 }
 
 /* ===== CALENDAR SETTINGS MODAL ===== */
