@@ -7,6 +7,11 @@ class BulletHistory {
     this.dates = [];
     this.sortedDomains = []; // Cached sorted domain list
 
+    // View mode: 'day' (default) or 'hour' - will be loaded from storage in init()
+    this.viewMode = 'day';
+    this.hours = []; // Array of hour strings like ['2025-12-01T00', '2025-12-01T01', ...]
+    this.hourlyData = {}; // { domain: { 'YYYY-MM-DDTHH': { count, urls } } }
+
     // Virtualization settings
     this.rowHeight = 21; // 18px cell + 3px gap
     this.colWidth = 21; // 18px cell + 3px gap
@@ -35,6 +40,12 @@ class BulletHistory {
   }
 
   async init() {
+    // Load saved view mode from localStorage
+    const savedViewMode = localStorage.getItem('bulletHistoryViewMode');
+    if (savedViewMode === 'hour' || savedViewMode === 'day') {
+      this.viewMode = savedViewMode;
+    }
+
     // Initialize state before loading data
     this.selectedCell = null;
     this.expandedViewType = null; // 'cell', 'domain', or 'full'
@@ -55,13 +66,22 @@ class BulletHistory {
 
     await this.loadColors();
     await this.fetchHistory();
+
+    // Generate dates and hours based on view mode
     this.generateDates();
-    this.sortedDomains = this.getSortedDomains();
+    if (this.viewMode === 'hour') {
+      this.generateHours();
+      await this.organizeHistoryByHour();
+      this.sortedDomains = this.sortDomainsForHourView();
+    } else {
+      this.sortedDomains = this.getSortedDomains();
+    }
     this.renderDateHeader();
     this.setupVirtualGrid();
     this.setupScrollSync();
     this.setupTooltips();
     this.setupRowHover();
+    this.setupColumnHeaderHover();
     this.setupCellClick();
     this.setupLiveUpdates();
     this.setupSortDropdown();
@@ -75,6 +95,18 @@ class BulletHistory {
     // Initialize calendar integration
     await this.initializeCalendar();
     this.setupCalendarUI();
+
+    // Initialize view toggle (hour/day)
+    this.setupViewToggle();
+
+    // Update toggle button state to reflect saved view mode
+    document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+      if (btn.dataset.view === this.viewMode) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
 
     // Re-render date header to show calendar events now that data is loaded
     this.renderDateHeader();
@@ -91,8 +123,12 @@ class BulletHistory {
     // Don't show expanded view on load
     // User can open it by clicking a cell or bottom menu buttons
 
-    // Scroll to show today (not future days)
-    this.scrollToToday();
+    // Scroll to appropriate position based on view mode
+    if (this.viewMode === 'hour') {
+      this.scrollToCurrentHour();
+    } else {
+      this.scrollToToday();
+    }
   }
 
   // Detect when the date changes and update the header
@@ -112,10 +148,19 @@ class BulletHistory {
           lastDate = currentDate;
           this.renderDateHeader();
           this.updateVirtualGrid();
-          this.scrollToToday();
+          // Scroll based on view mode
+          if (this.viewMode === 'hour') {
+            this.scrollToCurrentHour();
+          } else {
+            this.scrollToToday();
+          }
         } else {
-          // Date hasn't changed, but still scroll to today in case TLD width changed
-          this.scrollToToday();
+          // Date hasn't changed, but still scroll to appropriate position
+          if (this.viewMode === 'hour') {
+            this.scrollToCurrentHour();
+          } else {
+            this.scrollToToday();
+          }
         }
       }
     });
@@ -130,10 +175,19 @@ class BulletHistory {
         lastDate = currentDate;
         this.renderDateHeader();
         this.updateVirtualGrid();
-        this.scrollToToday();
+        // Scroll based on view mode
+        if (this.viewMode === 'hour') {
+          this.scrollToCurrentHour();
+        } else {
+          this.scrollToToday();
+        }
       } else {
-        // Date hasn't changed, but still scroll to today in case TLD width changed
-        this.scrollToToday();
+        // Date hasn't changed, but still scroll to appropriate position
+        if (this.viewMode === 'hour') {
+          this.scrollToCurrentHour();
+        } else {
+          this.scrollToToday();
+        }
       }
     });
   }
@@ -191,6 +245,47 @@ class BulletHistory {
       current.setDate(current.getDate() + 1);
     }
 
+  }
+
+  // Generate hour range from first to last history date
+  generateHours() {
+    // Find the earliest visit date from history data
+    let earliestDate = new Date();
+
+    for (const domain in this.historyData) {
+      for (const dateStr in this.historyData[domain].days) {
+        const date = new Date(dateStr);
+        if (date < earliestDate) earliestDate = date;
+      }
+    }
+
+    // Always show through today
+    const latestDate = new Date();
+    latestDate.setHours(23, 59, 59, 999);
+
+    // If no history, show last 30 days
+    if (!Object.keys(this.historyData).length) {
+      earliestDate = new Date();
+      earliestDate.setDate(earliestDate.getDate() - 30);
+    }
+
+    earliestDate.setHours(0, 0, 0, 0);
+
+    // Generate all hours between earliest and latest
+    this.hours = [];
+    const current = new Date(earliestDate);
+
+    while (current <= latestDate) {
+      const year = current.getFullYear();
+      const month = String(current.getMonth() + 1).padStart(2, '0');
+      const day = String(current.getDate()).padStart(2, '0');
+      const hour = String(current.getHours()).padStart(2, '0');
+      const hourStr = `${year}-${month}-${day}T${hour}`;
+      this.hours.push(hourStr);
+      current.setHours(current.getHours() + 1);
+    }
+
+    console.log('Generated hours:', this.hours.length, 'hours from', this.hours[0], 'to', this.hours[this.hours.length - 1]);
   }
 
   formatDate(date) {
@@ -431,8 +526,79 @@ class BulletHistory {
     }
   }
 
+  // Get sorted domains for hour view
+  sortDomainsForHourView() {
+    let domains = Object.keys(this.hourlyData);
+    console.log('sortDomainsForHourView: Starting with', domains.length, 'domains from hourlyData');
+
+    // Apply search filter
+    if (this.searchFilter) {
+      const filterLower = this.searchFilter.toLowerCase();
+      domains = domains.filter(domain => domain.toLowerCase().includes(filterLower));
+    }
+
+    // Apply sort
+    switch (this.sortMode) {
+      case 'recent':
+        // Most recent visit first (check all URLs in all hours)
+        return domains.sort((a, b) => {
+          let aMaxTime = 0;
+          let bMaxTime = 0;
+
+          Object.values(this.hourlyData[a]).forEach(hourData => {
+            hourData.urls.forEach(url => {
+              aMaxTime = Math.max(aMaxTime, url.lastVisitTime);
+            });
+          });
+
+          Object.values(this.hourlyData[b]).forEach(hourData => {
+            hourData.urls.forEach(url => {
+              bMaxTime = Math.max(bMaxTime, url.lastVisitTime);
+            });
+          });
+
+          return bMaxTime - aMaxTime;
+        });
+
+      case 'popular':
+        // Most total visits in the day
+        return domains.sort((a, b) => {
+          let aTotal = 0;
+          let bTotal = 0;
+
+          Object.values(this.hourlyData[a]).forEach(hourData => {
+            aTotal += hourData.count;
+          });
+
+          Object.values(this.hourlyData[b]).forEach(hourData => {
+            bTotal += hourData.count;
+          });
+
+          return bTotal - aTotal;
+        });
+
+      case 'alphabetical':
+        // A to Z
+        return domains.sort((a, b) => a.localeCompare(b));
+
+      default:
+        return domains;
+    }
+  }
+
   // Render date header
   renderDateHeader() {
+    console.log('renderDateHeader called, viewMode:', this.viewMode);
+
+    // Check if we're in hour view mode
+    if (this.viewMode === 'hour') {
+      this.renderHourHeader();
+      return;
+    }
+
+    // Remove hour-view class when in day view
+    document.querySelector('.container').classList.remove('hour-view');
+
     const monthRow = document.getElementById('monthRow');
     const calendarEventsRow = document.getElementById('calendarEventsRow');
     const weekdayRow = document.getElementById('weekdayRow');
@@ -506,6 +672,12 @@ class BulletHistory {
         eventColumn.classList.add('col-today');
       }
 
+      // Add click handler to switch to hour view for this day
+      eventColumn.addEventListener('click', () => {
+        this.switchToHourViewForDate(dateStr);
+      });
+      eventColumn.style.cursor = 'pointer';
+
       calendarEventsRow.appendChild(eventColumn);
 
       // Weekday letter
@@ -514,6 +686,14 @@ class BulletHistory {
       if (isToday) weekdayCell.classList.add('col-today');
       weekdayCell.textContent = weekdayName;
       weekdayCell.dataset.colIndex = index;
+      weekdayCell.dataset.date = dateStr;
+
+      // Add click handler to switch to hour view for this day
+      weekdayCell.addEventListener('click', () => {
+        this.switchToHourViewForDate(dateStr);
+      });
+      weekdayCell.style.cursor = 'pointer';
+
       weekdayRow.appendChild(weekdayCell);
 
       // Day number
@@ -522,6 +702,14 @@ class BulletHistory {
       if (isToday) dayCell.classList.add('col-today');
       dayCell.textContent = dayNum;
       dayCell.dataset.colIndex = index;
+      dayCell.dataset.date = dateStr;
+
+      // Add click handler to switch to hour view for this day
+      dayCell.addEventListener('click', () => {
+        this.switchToHourViewForDate(dateStr);
+      });
+      dayCell.style.cursor = 'pointer';
+
       dayRow.appendChild(dayCell);
 
       // Last month cell
@@ -532,6 +720,111 @@ class BulletHistory {
         monthCell.style.minWidth = `${monthSpan * 21 - 3}px`;
         monthCell.textContent = currentMonth;
         monthRow.appendChild(monthCell);
+      }
+    });
+  }
+
+  // Render hour header for hour view
+  renderHourHeader() {
+    console.log('renderHourHeader called, hours:', this.hours.length);
+
+    // Add class to container to enable hour-view specific CSS
+    document.querySelector('.container').classList.add('hour-view');
+
+    const monthRow = document.getElementById('monthRow');
+    const calendarEventsRow = document.getElementById('calendarEventsRow');
+    const weekdayRow = document.getElementById('weekdayRow');
+    const dayRow = document.getElementById('dayRow');
+
+    monthRow.innerHTML = '';
+    calendarEventsRow.innerHTML = '';
+    weekdayRow.innerHTML = '';
+    dayRow.innerHTML = '';
+
+    // Get current hour string for highlighting
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const currentHour = String(now.getHours()).padStart(2, '0');
+    const currentHourStr = `${year}-${month}-${day}T${currentHour}`;
+
+    let currentDay = '';
+    let daySpan = 0;
+
+    // Iterate through all hours
+    this.hours.forEach((hourStr, index) => {
+      // Parse hourStr like '2025-12-01T00'
+      const [datePart, hourPart] = hourStr.split('T');
+      const date = new Date(datePart + 'T00:00:00');
+      const hour = parseInt(hourPart);
+
+      // Check if this is the current hour
+      const isCurrentHour = hourStr === currentHourStr;
+
+      // Full day banner: "Friday, January 3rd, 2026"
+      const dayBanner = date.toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric'
+      });
+
+      // Calendar events column
+      const eventColumn = document.createElement('div');
+      eventColumn.className = 'calendar-event-column';
+      eventColumn.dataset.date = hourStr;
+      if (isCurrentHour) eventColumn.classList.add('col-today');
+
+      // Render events (if any) for this specific hour
+      const hasEvents = this.renderCalendarEventColumnForHour(eventColumn, hourStr);
+
+      // Set empty columns to zero height to save vertical space
+      if (!hasEvents) {
+        eventColumn.style.height = '0';
+        eventColumn.style.padding = '0';
+      }
+
+      calendarEventsRow.appendChild(eventColumn);
+
+      // Day banner (show when day changes) - spans 24 hours
+      if (dayBanner !== currentDay) {
+        if (daySpan > 0) {
+          const bannerCell = document.createElement('div');
+          bannerCell.className = 'weekday-cell';
+          bannerCell.style.width = `${daySpan * 21 - 3}px`;
+          bannerCell.style.minWidth = `${daySpan * 21 - 3}px`;
+          bannerCell.style.textAlign = 'center';
+          bannerCell.style.fontWeight = '600';
+          bannerCell.style.fontSize = '11px';
+          bannerCell.textContent = currentDay;
+          weekdayRow.appendChild(bannerCell);
+        }
+        currentDay = dayBanner;
+        daySpan = 1;
+      } else {
+        daySpan++;
+      }
+
+      // Hour number - use simple flexbox like day view
+      const hourCell = document.createElement('div');
+      hourCell.className = 'day-cell';
+      if (isCurrentHour) hourCell.classList.add('col-today');
+      hourCell.textContent = hour;
+      hourCell.dataset.colIndex = index; // Add column index for hover functionality
+      dayRow.appendChild(hourCell);
+
+      // Last day banner
+      if (index === this.hours.length - 1) {
+        const bannerCell = document.createElement('div');
+        bannerCell.className = 'weekday-cell';
+        bannerCell.style.width = `${daySpan * 21 - 3}px`;
+        bannerCell.style.minWidth = `${daySpan * 21 - 3}px`;
+        bannerCell.style.textAlign = 'center';
+        bannerCell.style.fontWeight = '600';
+        bannerCell.style.fontSize = '11px';
+        bannerCell.textContent = currentDay;
+        weekdayRow.appendChild(bannerCell);
       }
     });
   }
@@ -572,7 +865,8 @@ class BulletHistory {
 
     // Calculate total dimensions
     const totalHeight = this.sortedDomains.length * this.rowHeight + 11; // Add top (8px) + bottom (3px) padding
-    const totalWidth = this.dates.length * this.colWidth;
+    const columnCount = this.viewMode === 'hour' ? this.hours.length : this.dates.length;
+    const totalWidth = columnCount * this.colWidth;
 
     // Create spacer to maintain scroll area
     tldColumn.innerHTML = '<div class="virtual-spacer"></div>';
@@ -626,8 +920,9 @@ class BulletHistory {
     );
 
     const startCol = Math.max(0, Math.floor(scrollLeft / this.colWidth) - this.colBuffer);
+    const columnCount = this.viewMode === 'hour' ? this.hours.length : this.dates.length;
     const endCol = Math.min(
-      this.dates.length,
+      columnCount,
       Math.ceil((scrollLeft + viewportWidth) / this.colWidth) + this.colBuffer
     );
 
@@ -662,11 +957,20 @@ class BulletHistory {
     tldColumn.appendChild(tldSpacer);
     cellGrid.appendChild(cellSpacer);
 
-    // Get today's date string for comparison
+    // Get today's date string for comparison (day view)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayStr = this.formatDate(today);
     const todayIndex = this.dates.indexOf(todayStr);
+
+    // Get current hour string for comparison (hour view)
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const currentHour = String(now.getHours()).padStart(2, '0');
+    const currentHourStr = `${year}-${month}-${day}T${currentHour}`;
+    const currentHourIndex = this.hours.indexOf(currentHourStr);
 
     // Render visible rows
     for (let rowIndex = startRow; rowIndex < endRow; rowIndex++) {
@@ -675,9 +979,19 @@ class BulletHistory {
 
       // Find max visit count for THIS DOMAIN (row-normalized)
       let maxCount = 0;
-      Object.values(this.historyData[domain].days).forEach(day => {
-        maxCount = Math.max(maxCount, day.count);
-      });
+      if (this.viewMode === 'hour') {
+        // In hour view, find max hourly count
+        if (this.hourlyData[domain]) {
+          Object.values(this.hourlyData[domain]).forEach(hourData => {
+            maxCount = Math.max(maxCount, hourData.count);
+          });
+        }
+      } else {
+        // In day view, find max daily count
+        Object.values(this.historyData[domain].days).forEach(day => {
+          maxCount = Math.max(maxCount, day.count);
+        });
+      }
 
       // TLD label
       const tldRow = document.createElement('div');
@@ -722,10 +1036,11 @@ class BulletHistory {
       cellRow.style.position = 'absolute';
       cellRow.style.top = `${rowIndex * this.rowHeight + 8}px`; // Add 8px padding
       cellRow.style.left = '0';
-      cellRow.style.width = `${this.dates.length * this.colWidth + 13}px`; // Match date-header-inner width
+      const columnCount = this.viewMode === 'hour' ? this.hours.length : this.dates.length;
+      cellRow.style.width = `${columnCount * this.colWidth + 13}px`; // Match date-header-inner width
 
-      // Add today column highlight
-      if (todayIndex !== -1) {
+      // Add today/current hour column highlight
+      if (this.viewMode === 'day' && todayIndex !== -1) {
         cellRow.classList.add('has-today-col');
         // Add special class for first row to extend highlight upward
         if (rowIndex === startRow) {
@@ -733,35 +1048,54 @@ class BulletHistory {
         }
         const todayColLeft = todayIndex * this.colWidth + 8 - 1; // Position to center the 20px highlight (1px padding on each side)
         cellRow.style.setProperty('--today-col-left', `${todayColLeft}px`);
+      } else if (this.viewMode === 'hour' && currentHourIndex !== -1) {
+        cellRow.classList.add('has-today-col');
+        // Add special class for first row to extend highlight upward
+        if (rowIndex === startRow) {
+          cellRow.classList.add('first-row-today');
+        }
+        const currentHourColLeft = currentHourIndex * this.colWidth + 8 - 1;
+        cellRow.style.setProperty('--today-col-left', `${currentHourColLeft}px`);
       }
 
       // Render visible columns
       for (let colIndex = startCol; colIndex < endCol; colIndex++) {
-        const dateStr = this.dates[colIndex];
-        if (!dateStr) continue;
+        let columnKey, visitData;
+
+        if (this.viewMode === 'hour') {
+          // Hour view: column key is hour (0-23)
+          columnKey = this.hours[colIndex];
+          if (columnKey === undefined) continue;
+          visitData = this.hourlyData[domain]?.[columnKey];
+        } else {
+          // Day view: column key is date string
+          columnKey = this.dates[colIndex];
+          if (!columnKey) continue;
+          visitData = this.historyData[domain].days[columnKey];
+        }
 
         const cell = document.createElement('div');
         cell.className = 'cell';
         cell.dataset.domain = domain;
-        cell.dataset.date = dateStr;
+        cell.dataset.date = columnKey; // columnKey is hourStr in hour view, dateStr in day view
         cell.dataset.colIndex = colIndex;
         cell.dataset.rowIndex = rowIndex;
         cell.style.position = 'absolute';
         cell.style.left = `${colIndex * this.colWidth + 8}px`; // Add left padding
 
-        // Check if this is today's column
-        if (dateStr === todayStr) {
+        // Check if this is today's column (day view) or current hour (hour view)
+        if (this.viewMode === 'day' && columnKey === todayStr) {
+          cell.classList.add('col-today');
+        } else if (this.viewMode === 'hour' && columnKey === currentHourStr) {
           cell.classList.add('col-today');
         }
 
-        const dayData = this.historyData[domain].days[dateStr];
-
-        if (dayData && dayData.count > 0) {
+        if (visitData && visitData.count > 0) {
           const baseColor = this.colors[domain];
           // Use GitHub-style discrete color levels
-          cell.style.backgroundColor = this.getGitHubStyleColor(dayData.count, maxCount, baseColor);
+          cell.style.backgroundColor = this.getGitHubStyleColor(visitData.count, maxCount, baseColor);
 
-          cell.dataset.count = dayData.count;
+          cell.dataset.count = visitData.count;
         } else {
           cell.classList.add('empty');
           cell.dataset.count = 0;
@@ -1007,6 +1341,106 @@ class BulletHistory {
         // Remove highlight from column cells
         const columnCells = cellGrid.querySelectorAll(`.cell[data-col-index="${colIndex}"]`);
         columnCells.forEach(cell => cell.classList.remove('col-hover'));
+      }
+    });
+  }
+
+  // Setup column header hover (for day-cell and weekday-cell in header)
+  setupColumnHeaderHover() {
+    const dayRow = document.getElementById('dayRow');
+    const weekdayRow = document.getElementById('weekdayRow');
+    const calendarEventsRow = document.getElementById('calendarEventsRow');
+    const cellGrid = document.getElementById('cellGrid');
+
+    // Helper function to highlight column
+    const highlightColumn = (colIndex) => {
+      // Highlight the weekday cell
+      const weekdayCell = weekdayRow.querySelector(`.weekday-cell[data-col-index="${colIndex}"]`);
+      if (weekdayCell) {
+        weekdayCell.classList.add('col-hover');
+      }
+
+      // Highlight the day cell
+      const dayCell = dayRow.querySelector(`.day-cell[data-col-index="${colIndex}"]`);
+      if (dayCell) {
+        dayCell.classList.add('col-hover');
+      }
+
+      // Highlight the calendar event column (only if it has events)
+      if (calendarEventsRow) {
+        const eventColumns = calendarEventsRow.children;
+        if (eventColumns[colIndex] && eventColumns[colIndex].children.length > 0) {
+          eventColumns[colIndex].classList.add('col-hover');
+        }
+      }
+
+      // Highlight all cells in the column
+      const columnCells = cellGrid.querySelectorAll(`.cell[data-col-index="${colIndex}"]`);
+      columnCells.forEach(cell => cell.classList.add('col-hover'));
+    };
+
+    // Helper function to remove column highlight
+    const removeColumnHighlight = (colIndex) => {
+      // Remove highlight from weekday cell
+      const weekdayCell = weekdayRow.querySelector(`.weekday-cell[data-col-index="${colIndex}"]`);
+      if (weekdayCell) {
+        weekdayCell.classList.remove('col-hover');
+      }
+
+      // Remove highlight from day cell
+      const dayCell = dayRow.querySelector(`.day-cell[data-col-index="${colIndex}"]`);
+      if (dayCell) {
+        dayCell.classList.remove('col-hover');
+      }
+
+      // Remove highlight from calendar event column
+      if (calendarEventsRow) {
+        const eventColumns = calendarEventsRow.children;
+        if (eventColumns[colIndex]) {
+          eventColumns[colIndex].classList.remove('col-hover');
+        }
+      }
+
+      // Remove highlight from column cells
+      const columnCells = cellGrid.querySelectorAll(`.cell[data-col-index="${colIndex}"]`);
+      columnCells.forEach(cell => cell.classList.remove('col-hover'));
+    };
+
+    // Day cell hover
+    dayRow.addEventListener('mouseover', (e) => {
+      if (e.target.classList.contains('day-cell')) {
+        const colIndex = e.target.dataset.colIndex;
+        if (colIndex !== undefined) {
+          highlightColumn(colIndex);
+        }
+      }
+    });
+
+    dayRow.addEventListener('mouseout', (e) => {
+      if (e.target.classList.contains('day-cell')) {
+        const colIndex = e.target.dataset.colIndex;
+        if (colIndex !== undefined) {
+          removeColumnHighlight(colIndex);
+        }
+      }
+    });
+
+    // Weekday cell hover
+    weekdayRow.addEventListener('mouseover', (e) => {
+      if (e.target.classList.contains('weekday-cell')) {
+        const colIndex = e.target.dataset.colIndex;
+        if (colIndex !== undefined) {
+          highlightColumn(colIndex);
+        }
+      }
+    });
+
+    weekdayRow.addEventListener('mouseout', (e) => {
+      if (e.target.classList.contains('weekday-cell')) {
+        const colIndex = e.target.dataset.colIndex;
+        if (colIndex !== undefined) {
+          removeColumnHighlight(colIndex);
+        }
       }
     });
   }
@@ -2387,6 +2821,64 @@ class BulletHistory {
     }
   }
 
+  scrollToCurrentHour() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hour = String(now.getHours()).padStart(2, '0');
+    const currentHourStr = `${year}-${month}-${day}T${hour}`;
+
+    const currentHourIndex = this.hours.indexOf(currentHourStr);
+
+    if (currentHourIndex !== -1) {
+      const cellGridWrapper = document.getElementById('cellGridWrapper');
+      const dateHeader = document.getElementById('dateHeader');
+
+      // Calculate scroll position to show current hour with some context
+      // Show current hour plus a few hours ahead
+      const scrollLeft = (currentHourIndex + 4) * this.colWidth - cellGridWrapper.clientWidth;
+
+      // Ensure we don't scroll past the end or before the beginning
+      const maxScroll = Math.max(0, scrollLeft);
+
+      cellGridWrapper.scrollLeft = maxScroll;
+      dateHeader.scrollLeft = maxScroll;
+    }
+  }
+
+  scrollToDateInHourView(dateStr) {
+    // Scroll to noon (12pm) of the specified date to center the day
+    const noonHourStr = `${dateStr}T12`;
+    const noonHourIndex = this.hours.indexOf(noonHourStr);
+
+    if (noonHourIndex !== -1) {
+      const cellGridWrapper = document.getElementById('cellGridWrapper');
+      const dateHeader = document.getElementById('dateHeader');
+
+      // Center the noon hour in the viewport
+      const scrollLeft = noonHourIndex * this.colWidth - (cellGridWrapper.clientWidth / 2);
+
+      // Ensure we don't scroll past the end or before the beginning
+      const maxScroll = Math.max(0, scrollLeft);
+
+      cellGridWrapper.scrollLeft = maxScroll;
+      dateHeader.scrollLeft = maxScroll;
+    }
+  }
+
+  async switchToHourViewForDate(dateStr) {
+    if (this.viewMode !== 'hour') {
+      // Switch to hour view first
+      await this.switchView('hour');
+    }
+
+    // Use requestAnimationFrame to ensure DOM is updated before scrolling
+    requestAnimationFrame(() => {
+      this.scrollToDateInHourView(dateStr);
+    });
+  }
+
   // Setup zoom controls (Command+/Command-)
   setupZoomControls() {
     let currentZoom = 1.0;
@@ -3198,24 +3690,50 @@ class BulletHistory {
   /**
    * Render calendar events for a specific date column in the header
    */
-  renderCalendarEventColumn(eventColumn, dateStr) {
+  // Render calendar events for a specific hour (hour view)
+  renderCalendarEventColumnForHour(eventColumn, hourStr) {
     // Only show events if calendar integration is available
     if (typeof googleCalendar === 'undefined') {
       return false;
     }
 
-    const events = googleCalendar.getEventsForDate(dateStr);
+    // Parse hourStr like '2025-12-01T14'
+    const [datePart, hourPart] = hourStr.split('T');
+    const targetHour = parseInt(hourPart);
 
-    // Filter to only enabled calendars
+    const events = googleCalendar.getEventsForDate(datePart);
+
+    // Filter to only enabled calendars AND events that occur during this hour
     const enabledEvents = events.filter(event => {
       const calendar = googleCalendar.calendarData.calendars[event.calendarId];
-      return calendar && calendar.enabled;
+      if (!calendar || !calendar.enabled) return false;
+
+      // All-day events appear in every hour
+      if (event.isAllDay) return true;
+
+      // Timed events: check if this hour falls within the event time
+      const startTime = new Date(event.start.dateTime);
+      const endTime = new Date(event.end.dateTime);
+      const startHour = startTime.getHours();
+      const endHour = endTime.getHours();
+
+      // Event occurs during this hour if:
+      // - Event starts in this hour, OR
+      // - Event ends in this hour, OR
+      // - Event spans across this hour
+      return targetHour >= startHour && targetHour <= endHour;
     });
 
     if (enabledEvents.length === 0) {
       return false;
     }
 
+    // Use the same rendering logic as renderCalendarEventColumn
+    return this.renderCalendarEventDots(eventColumn, enabledEvents, datePart);
+  }
+
+  // Common method to render event dots
+  renderCalendarEventDots(eventColumn, enabledEvents, dateStr) {
     // Sort events chronologically (all-day first, then by start time)
     const sortedEvents = [...enabledEvents].sort((a, b) => {
       if (a.isAllDay && !b.isAllDay) return -1;
@@ -3334,6 +3852,162 @@ class BulletHistory {
     }
 
     return true; // Events were rendered
+  }
+
+  renderCalendarEventColumn(eventColumn, dateStr) {
+    // Only show events if calendar integration is available
+    if (typeof googleCalendar === 'undefined') {
+      return false;
+    }
+
+    const events = googleCalendar.getEventsForDate(dateStr);
+
+    // Filter to only enabled calendars
+    const enabledEvents = events.filter(event => {
+      const calendar = googleCalendar.calendarData.calendars[event.calendarId];
+      return calendar && calendar.enabled;
+    });
+
+    if (enabledEvents.length === 0) {
+      return false;
+    }
+
+    return this.renderCalendarEventDots(eventColumn, enabledEvents, dateStr);
+  }
+
+  // ===== VIEW TOGGLE (Hour/Day) =====
+
+  setupViewToggle() {
+    const viewToggleBtns = document.querySelectorAll('.view-toggle-btn');
+
+    viewToggleBtns.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const view = btn.dataset.view;
+        this.switchView(view);
+      });
+    });
+  }
+
+  async switchView(view) {
+    console.log('switchView called, changing from', this.viewMode, 'to', view);
+
+    if (this.viewMode === view) return; // Already in this view
+
+    this.viewMode = view;
+    console.log('viewMode now set to:', this.viewMode);
+
+    // Save view mode to localStorage
+    localStorage.setItem('bulletHistoryViewMode', view);
+
+    // Update button states
+    document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+      if (btn.dataset.view === view) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
+
+    if (view === 'hour') {
+      // Switch to hour view - generate hours for entire range
+      console.log('Switching to hour view');
+      this.generateHours();
+      await this.organizeHistoryByHour();
+
+      // Update sorted domains list from hourly data
+      this.sortedDomains = this.sortDomainsForHourView();
+      console.log('Hour view sortedDomains:', this.sortedDomains.length, 'domains');
+    } else {
+      // Switch back to day view - restore domains from historyData
+      this.sortedDomains = this.getSortedDomains();
+      console.log('Day view sortedDomains:', this.sortedDomains.length, 'domains');
+    }
+
+    // Re-render everything
+    this.renderDateHeader();
+    this.setupVirtualGrid();
+
+    // Use requestAnimationFrame to ensure DOM is updated before scrolling
+    requestAnimationFrame(() => {
+      const cellGridWrapper = document.getElementById('cellGridWrapper');
+      cellGridWrapper.scrollTop = 0;
+
+      // Scroll to appropriate position based on view mode
+      if (view === 'hour') {
+        this.scrollToCurrentHour();
+      } else {
+        this.scrollToToday();
+      }
+
+      // Force update after scroll
+      this.updateVirtualGrid(true);
+    });
+  }
+
+  async organizeHistoryByHour() {
+    console.log('Organizing history by hour...');
+    console.log('historyData domains:', Object.keys(this.historyData).length);
+
+    const hourlyData = {};
+
+    // Go through each domain in historyData
+    for (const domain in this.historyData) {
+      const domainData = this.historyData[domain];
+
+      // Go through each day
+      for (const dateStr in domainData.days) {
+        const dayData = domainData.days[dateStr];
+        console.log(`Processing ${domain} - ${dateStr}: ${dayData.urls?.length || 0} urls`);
+
+        // For each URL visited on this day
+        if (dayData.urls && dayData.urls.length > 0) {
+          dayData.urls.forEach(urlData => {
+            const visitDate = new Date(urlData.lastVisit);
+            const year = visitDate.getFullYear();
+            const month = String(visitDate.getMonth() + 1).padStart(2, '0');
+            const day = String(visitDate.getDate()).padStart(2, '0');
+            const hour = String(visitDate.getHours()).padStart(2, '0');
+            const hourStr = `${year}-${month}-${day}T${hour}`;
+
+            // Initialize domain if needed
+            if (!hourlyData[domain]) {
+              hourlyData[domain] = {};
+            }
+
+            // Initialize hour if needed
+            if (!hourlyData[domain][hourStr]) {
+              hourlyData[domain][hourStr] = { count: 0, urls: [] };
+            }
+
+            // Add visit to this hour
+            hourlyData[domain][hourStr].count++;
+            hourlyData[domain][hourStr].urls.push(urlData);
+          });
+        }
+      }
+    }
+
+    console.log('Hourly data organized:', Object.keys(hourlyData).length, 'domains');
+    console.log('Total hours with data:',
+      Object.values(hourlyData).reduce((sum, domainData) =>
+        sum + Object.keys(domainData).length, 0));
+
+    // Show a sample
+    const sampleDomain = Object.keys(hourlyData)[0];
+    if (sampleDomain) {
+      console.log('Sample domain:', sampleDomain);
+      console.log('Sample hours:', Object.keys(hourlyData[sampleDomain]).slice(0, 5));
+      console.log('Sample hour data:', hourlyData[sampleDomain][Object.keys(hourlyData[sampleDomain])[0]]);
+    }
+
+    this.hourlyData = hourlyData;
+  }
+
+  formatHourLabel(hour) {
+    // Format as 12-hour time: 12a, 1a, 2a, ..., 11a, 12p, 1p, ..., 11p
+    const isPM = hour >= 12;
+    const displayHour = hour === 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+    return `${displayHour}${isPM ? 'p' : 'a'}`;
   }
 }
 
