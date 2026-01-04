@@ -762,13 +762,30 @@ class BulletHistory {
       // Check if this is the current hour
       const isCurrentHour = hourStr === currentHourStr;
 
-      // Full day banner: "Friday, January 3rd, 2026"
-      const dayBanner = date.toLocaleDateString('en-US', {
-        weekday: 'long',
+      // Month/Year line: "January 2026"
+      const monthYear = date.toLocaleDateString('en-US', {
         month: 'long',
-        day: 'numeric',
         year: 'numeric'
       });
+
+      // Weekday/Day line: "Saturday 3rd"
+      const weekdayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+      const dayNum = date.getDate();
+
+      // Add ordinal suffix (st, nd, rd, th)
+      const getOrdinalSuffix = (day) => {
+        if (day > 3 && day < 21) return 'th';
+        switch (day % 10) {
+          case 1: return 'st';
+          case 2: return 'nd';
+          case 3: return 'rd';
+          default: return 'th';
+        }
+      };
+      const weekdayDay = `${weekdayName} ${dayNum}${getOrdinalSuffix(dayNum)}`;
+
+      // Combine for tracking day changes
+      const dayBanner = `${monthYear}|${weekdayDay}`;
 
       // Calendar events column
       const eventColumn = document.createElement('div');
@@ -790,14 +807,54 @@ class BulletHistory {
       // Day banner (show when day changes) - spans 24 hours
       if (dayBanner !== currentDay) {
         if (daySpan > 0) {
+          // Split the stored banner back into parts
+          const [prevMonthYear, prevWeekdayDay] = currentDay.split('|');
+
           const bannerCell = document.createElement('div');
-          bannerCell.className = 'weekday-cell';
+          bannerCell.className = 'weekday-cell hour-view-day-banner';
           bannerCell.style.width = `${daySpan * 21 - 3}px`;
           bannerCell.style.minWidth = `${daySpan * 21 - 3}px`;
           bannerCell.style.textAlign = 'center';
-          bannerCell.style.fontWeight = '600';
-          bannerCell.style.fontSize = '11px';
-          bannerCell.textContent = currentDay;
+          bannerCell.style.display = 'flex';
+          bannerCell.style.flexDirection = 'column';
+          bannerCell.style.alignItems = 'center';
+          bannerCell.style.gap = '2px';
+          bannerCell.style.padding = '4px 0';
+
+          // Month/Year line (clickable to switch back to day view)
+          const monthYearDiv = document.createElement('div');
+          monthYearDiv.className = 'hour-view-month-year';
+          monthYearDiv.style.fontWeight = '700';
+          monthYearDiv.style.fontSize = '11px';
+          monthYearDiv.style.cursor = 'pointer';
+          monthYearDiv.style.color = '#4285f4';
+          monthYearDiv.style.transition = 'opacity 0.15s ease';
+          monthYearDiv.textContent = prevMonthYear;
+          monthYearDiv.title = 'Click to switch to day view';
+
+          // Add hover effect
+          monthYearDiv.addEventListener('mouseenter', () => {
+            monthYearDiv.style.opacity = '0.7';
+          });
+          monthYearDiv.addEventListener('mouseleave', () => {
+            monthYearDiv.style.opacity = '1';
+          });
+
+          // Click to switch to day view
+          monthYearDiv.addEventListener('click', async () => {
+            await this.switchView('day');
+          });
+
+          // Weekday/Day line
+          const weekdayDayDiv = document.createElement('div');
+          weekdayDayDiv.className = 'hour-view-weekday-day';
+          weekdayDayDiv.style.fontWeight = '600';
+          weekdayDayDiv.style.fontSize = '10px';
+          weekdayDayDiv.style.color = '#666';
+          weekdayDayDiv.textContent = prevWeekdayDay;
+
+          bannerCell.appendChild(monthYearDiv);
+          bannerCell.appendChild(weekdayDayDiv);
           weekdayRow.appendChild(bannerCell);
         }
         currentDay = dayBanner;
@@ -816,14 +873,54 @@ class BulletHistory {
 
       // Last day banner
       if (index === this.hours.length - 1) {
+        // Split the stored banner back into parts
+        const [lastMonthYear, lastWeekdayDay] = currentDay.split('|');
+
         const bannerCell = document.createElement('div');
-        bannerCell.className = 'weekday-cell';
+        bannerCell.className = 'weekday-cell hour-view-day-banner';
         bannerCell.style.width = `${daySpan * 21 - 3}px`;
         bannerCell.style.minWidth = `${daySpan * 21 - 3}px`;
         bannerCell.style.textAlign = 'center';
-        bannerCell.style.fontWeight = '600';
-        bannerCell.style.fontSize = '11px';
-        bannerCell.textContent = currentDay;
+        bannerCell.style.display = 'flex';
+        bannerCell.style.flexDirection = 'column';
+        bannerCell.style.alignItems = 'center';
+        bannerCell.style.gap = '2px';
+        bannerCell.style.padding = '4px 0';
+
+        // Month/Year line (clickable to switch back to day view)
+        const monthYearDiv = document.createElement('div');
+        monthYearDiv.className = 'hour-view-month-year';
+        monthYearDiv.style.fontWeight = '700';
+        monthYearDiv.style.fontSize = '11px';
+        monthYearDiv.style.cursor = 'pointer';
+        monthYearDiv.style.color = '#4285f4';
+        monthYearDiv.style.transition = 'opacity 0.15s ease';
+        monthYearDiv.textContent = lastMonthYear;
+        monthYearDiv.title = 'Click to switch to day view';
+
+        // Add hover effect
+        monthYearDiv.addEventListener('mouseenter', () => {
+          monthYearDiv.style.opacity = '0.7';
+        });
+        monthYearDiv.addEventListener('mouseleave', () => {
+          monthYearDiv.style.opacity = '1';
+        });
+
+        // Click to switch to day view
+        monthYearDiv.addEventListener('click', async () => {
+          await this.switchView('day');
+        });
+
+        // Weekday/Day line
+        const weekdayDayDiv = document.createElement('div');
+        weekdayDayDiv.className = 'hour-view-weekday-day';
+        weekdayDayDiv.style.fontWeight = '600';
+        weekdayDayDiv.style.fontSize = '10px';
+        weekdayDayDiv.style.color = '#666';
+        weekdayDayDiv.textContent = lastWeekdayDay;
+
+        bannerCell.appendChild(monthYearDiv);
+        bannerCell.appendChild(weekdayDayDiv);
         weekdayRow.appendChild(bannerCell);
       }
     });
@@ -1542,6 +1639,12 @@ class BulletHistory {
     const expandedView = document.getElementById('expandedView');
     const expandedTitle = document.getElementById('expandedTitle');
 
+    // Hide calendar section (not used in full history view)
+    const calendarSection = document.getElementById('calendarSection');
+    if (calendarSection) {
+      calendarSection.style.display = 'none';
+    }
+
     // Set view type
     this.expandedViewType = 'full';
     this.currentDomain = null;
@@ -1608,6 +1711,12 @@ class BulletHistory {
     const expandedTitle = document.getElementById('expandedTitle');
     const urlList = document.getElementById('urlList');
     const expandedHeader = document.querySelector('.expanded-header');
+
+    // Hide calendar section (not used in domain view)
+    const calendarSection = document.getElementById('calendarSection');
+    if (calendarSection) {
+      calendarSection.style.display = 'none';
+    }
 
     // Set view type
     this.expandedViewType = 'domain';
@@ -2306,6 +2415,7 @@ class BulletHistory {
 
     this.expandedViewType = null;
     this.currentDomain = null;
+    this.currentDate = null;
   }
 
   // Navigate to previous or next day for the same domain
@@ -2454,6 +2564,20 @@ class BulletHistory {
                 };
                 this.setupVirtualGrid();
               }
+            } else if (this.expandedViewType === 'day') {
+              // Refresh day view with updated data
+              this.showDayExpandedView(this.currentDate);
+
+              // Force complete re-render
+              this.virtualState = {
+                startRow: -1,
+                endRow: -1,
+                startCol: -1,
+                endCol: -1,
+                viewportHeight: 0,
+                viewportWidth: 0
+              };
+              this.setupVirtualGrid();
             } else if (this.expandedViewType === 'full' || this.expandedViewType === 'recent') {
               // Refresh "All" view
               this.showFullHistory();
@@ -2772,6 +2896,11 @@ class BulletHistory {
           const dayData = this.historyData[domain].days[visitDate];
           this.showExpandedView(domain, visitDate, dayData.count);
         }
+      } else if (this.expandedViewType === 'day' && this.currentDate) {
+        // Refresh day view if the new visit is on the current date
+        if (this.currentDate === visitDate) {
+          this.showDayExpandedView(this.currentDate);
+        }
       } else if (this.expandedViewType === 'recent' || this.expandedViewType === 'full') {
         // Refresh full history view
         this.showFullHistory();
@@ -2876,7 +3005,115 @@ class BulletHistory {
     // Use requestAnimationFrame to ensure DOM is updated before scrolling
     requestAnimationFrame(() => {
       this.scrollToDateInHourView(dateStr);
+
+      // Also show expanded view with all URLs from this day
+      this.showDayExpandedView(dateStr);
     });
+  }
+
+  // Show expanded view with all URLs from a specific day (all domains)
+  showDayExpandedView(dateStr) {
+    const expandedView = document.getElementById('expandedView');
+    const expandedTitle = document.getElementById('expandedTitle');
+    const urlList = document.getElementById('urlList');
+
+    // Set view type
+    this.expandedViewType = 'day';
+    this.currentDomain = null;
+    this.currentDate = dateStr;
+
+    // Remove delete domain button if it exists
+    const deleteBtn = document.getElementById('deleteDomain');
+    if (deleteBtn) {
+      deleteBtn.remove();
+    }
+
+    // Format date nicely
+    const dateObj = new Date(dateStr + 'T00:00:00');
+    const formattedDate = dateObj.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric'
+    });
+
+    // Collect all URLs from all domains for this date
+    const allUrls = [];
+    let totalCount = 0;
+
+    for (const domain in this.historyData) {
+      const dayData = this.historyData[domain].days[dateStr];
+      if (dayData && dayData.urls) {
+        dayData.urls.forEach(urlData => {
+          allUrls.push({
+            ...urlData,
+            domain: domain,
+            date: dateStr
+          });
+        });
+        totalCount += dayData.count;
+      }
+    }
+
+    // Sort URLs by time (most recent first)
+    allUrls.sort((a, b) => b.lastVisit - a.lastVisit);
+
+    // Set title
+    expandedTitle.textContent = `${formattedDate} (${totalCount} visit${totalCount !== 1 ? 's' : ''})`;
+
+    // Remove navigation controls if they exist (not needed for day view)
+    const navContainer = document.getElementById('expandedNav');
+    if (navContainer) {
+      navContainer.remove();
+    }
+
+    // Render calendar events for this date
+    this.renderCalendarEventsForDate(dateStr);
+
+    // Clear URL list
+    urlList.innerHTML = '';
+
+    if (allUrls.length === 0) {
+      urlList.innerHTML = '<div class="no-urls">No visits on this day</div>';
+    } else {
+      // Group URLs by hour for better organization
+      const urlsByHour = {};
+
+      allUrls.forEach(urlData => {
+        const visitDate = new Date(urlData.lastVisit);
+        const hour = visitDate.getHours();
+        const hourKey = `${String(hour).padStart(2, '0')}:00`;
+
+        if (!urlsByHour[hourKey]) {
+          urlsByHour[hourKey] = [];
+        }
+        urlsByHour[hourKey].push(urlData);
+      });
+
+      // Render URLs grouped by hour
+      const hours = Object.keys(urlsByHour).sort().reverse(); // Most recent hour first
+
+      hours.forEach(hourKey => {
+        // Hour header
+        const hourHeader = document.createElement('div');
+        hourHeader.className = 'hour-group-header';
+        const hourNum = parseInt(hourKey.split(':')[0]);
+        const ampm = hourNum >= 12 ? 'PM' : 'AM';
+        const displayHour = hourNum === 0 ? 12 : (hourNum > 12 ? hourNum - 12 : hourNum);
+        hourHeader.textContent = `${displayHour}:00 ${ampm} (${urlsByHour[hourKey].length} visit${urlsByHour[hourKey].length !== 1 ? 's' : ''})`;
+        urlList.appendChild(hourHeader);
+
+        // URLs for this hour - use the standard createUrlItem method
+        urlsByHour[hourKey].forEach(urlData => {
+          const urlItem = this.createUrlItem(urlData, urlData.domain, dateStr);
+          urlList.appendChild(urlItem);
+        });
+      });
+    }
+
+    // Show the expanded view
+    expandedView.style.display = 'block';
+    this.updateExpandedViewPadding();
   }
 
   // Setup zoom controls (Command+/Command-)
@@ -3064,6 +3301,12 @@ class BulletHistory {
     const expandedTitle = document.getElementById('expandedTitle');
     const urlList = document.getElementById('urlList');
 
+    // Hide calendar section (not used in bookmarks view)
+    const calendarSection = document.getElementById('calendarSection');
+    if (calendarSection) {
+      calendarSection.style.display = 'none';
+    }
+
     this.expandedViewType = 'bookmarks';
     this.currentDomain = null;
 
@@ -3126,6 +3369,12 @@ class BulletHistory {
   showRecentlyClosed() {
     const expandedView = document.getElementById('expandedView');
     const expandedTitle = document.getElementById('expandedTitle');
+
+    // Hide calendar section (not used in recently closed view)
+    const calendarSection = document.getElementById('calendarSection');
+    if (calendarSection) {
+      calendarSection.style.display = 'none';
+    }
 
     this.expandedViewType = 'closed';
     this.currentDomain = null;
@@ -3509,6 +3758,8 @@ class BulletHistory {
           const date = this.selectedCell.dataset.date;
           const count = parseInt(this.selectedCell.dataset.count);
           this.renderCalendarEventsForDate(date);
+        } else if (this.expandedViewType === 'day' && this.currentDate) {
+          this.renderCalendarEventsForDate(this.currentDate);
         }
       });
 
@@ -3684,6 +3935,8 @@ class BulletHistory {
     if (this.expandedViewType === 'cell' && this.selectedCell) {
       const date = this.selectedCell.dataset.date;
       this.renderCalendarEventsForDate(date);
+    } else if (this.expandedViewType === 'day' && this.currentDate) {
+      this.renderCalendarEventsForDate(this.currentDate);
     }
   }
 

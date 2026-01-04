@@ -726,6 +726,21 @@ body {
   letter-spacing: 0.02em;
 }
 
+.hour-group-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: #666;
+  padding: 8px 12px;
+  background: #f5f5f5;
+  margin-top: 12px;
+  border-left: 3px solid #4285f4;
+  letter-spacing: 0.02em;
+}
+
+.hour-group-header:first-child {
+  margin-top: 0;
+}
+
 .url-item {
   display: flex;
   padding: 4px 8px;
