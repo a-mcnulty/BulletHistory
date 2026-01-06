@@ -259,9 +259,10 @@ class BulletHistory {
       }
     }
 
-    // Always show through today
-    const latestDate = new Date();
-    latestDate.setHours(23, 59, 59, 999);
+    // Always show at least 24 hours into the future from now
+    const now = new Date();
+    const latestDate = new Date(now.getTime() + (24 * 60 * 60 * 1000)); // Add 24 hours
+    latestDate.setMinutes(59, 59, 999); // Round to end of the hour
 
     // If no history, show last 30 days
     if (!Object.keys(this.historyData).length) {
@@ -1120,7 +1121,9 @@ class BulletHistory {
       deleteBtn.title = 'Delete all history for this domain';
       deleteBtn.addEventListener('click', (e) => {
         e.stopPropagation(); // Prevent row click
-        this.deleteDomainData(domain);
+        // Find the TLD row element and animate it
+        const tldRow = e.target.closest('.tld-row');
+        this.deleteDomainWithAnimation(tldRow, domain);
       });
       tldRow.appendChild(deleteBtn);
 
@@ -1701,8 +1704,7 @@ class BulletHistory {
     this.expandedUrls = allUrls;
     this.renderUrlList();
 
-    expandedView.style.display = 'block';
-    this.updateExpandedViewPadding();
+    this.showExpandedViewAnimated();
   }
 
   // Show domain view with all URLs grouped by date
@@ -1777,8 +1779,7 @@ class BulletHistory {
     this.expandedUrls = allUrls;
     this.renderUrlList();
 
-    expandedView.style.display = 'block';
-    this.updateExpandedViewPadding();
+    this.showExpandedViewAnimated();
   }
 
   // Show expanded view with URLs
@@ -1865,7 +1866,7 @@ class BulletHistory {
     const dayData = this.historyData[domain].days[date];
     if (!dayData || !dayData.urls) {
       urlList.innerHTML = '<div style="padding: 16px; color: #999;">No URLs found</div>';
-      expandedView.style.display = 'block';
+      this.showExpandedViewAnimated();
       return;
     }
 
@@ -1886,8 +1887,7 @@ class BulletHistory {
     // Render calendar events for this date
     this.renderCalendarEventsForDate(date);
 
-    expandedView.style.display = 'block';
-    this.updateExpandedViewPadding();
+    this.showExpandedViewAnimated();
   }
 
   // Get the display name for the current view type
@@ -2104,7 +2104,12 @@ class BulletHistory {
       deleteBtn.className = 'icon-btn delete';
       deleteBtn.textContent = '🗑️';
       deleteBtn.title = 'Delete from history';
-      deleteBtn.addEventListener('click', () => this.deleteUrl(urlData.url, domain, date));
+      deleteBtn.addEventListener('click', (e) => {
+        // Find the parent url-item element
+        const urlItem = e.target.closest('.url-item');
+        // Trigger delete animation, then delete
+        this.deleteUrlWithAnimation(urlItem, urlData.url, domain, date);
+      });
       actionsDiv.appendChild(deleteBtn);
     }
 
@@ -2401,12 +2406,19 @@ class BulletHistory {
     });
   }
 
-  // Close expanded view
+  // Close expanded view with animation
   closeExpandedView() {
     const expandedView = document.getElementById('expandedView');
-    expandedView.style.display = 'none';
 
-    this.updateExpandedViewPadding();
+    // Add slide-out animation
+    expandedView.classList.add('slide-out');
+
+    // Wait for animation to complete before hiding
+    setTimeout(() => {
+      expandedView.style.display = 'none';
+      expandedView.classList.remove('slide-out');
+      this.updateExpandedViewPadding();
+    }, 200); // Match slide-out duration
 
     if (this.selectedCell) {
       this.selectedCell.classList.remove('selected');
@@ -2416,6 +2428,27 @@ class BulletHistory {
     this.expandedViewType = null;
     this.currentDomain = null;
     this.currentDate = null;
+  }
+
+  // Show expanded view with animation
+  showExpandedViewAnimated() {
+    const expandedView = document.getElementById('expandedView');
+
+    // Set display first
+    expandedView.style.display = 'block';
+
+    // Force reflow to ensure display change is applied
+    expandedView.offsetHeight;
+
+    // Add slide-in animation
+    expandedView.classList.add('slide-in');
+
+    // Remove animation class after it completes
+    setTimeout(() => {
+      expandedView.classList.remove('slide-in');
+    }, 250); // Match slide-in duration
+
+    this.updateExpandedViewPadding();
   }
 
   // Navigate to previous or next day for the same domain
@@ -2475,6 +2508,22 @@ class BulletHistory {
     nextBtn.disabled = currentIndex >= domainDates.length - 1;
   }
 
+  // Delete URL with animation
+  deleteUrlWithAnimation(urlItemElement, url, domain, date) {
+    if (urlItemElement) {
+      // Add deleting class to trigger animation
+      urlItemElement.classList.add('deleting');
+
+      // Wait for animation to complete before deleting
+      setTimeout(() => {
+        this.deleteUrl(url, domain, date);
+      }, 250); // Match slideOutLeft duration
+    } else {
+      // No element to animate, delete immediately
+      this.deleteUrl(url, domain, date);
+    }
+  }
+
   // Delete URL from history
   async deleteUrl(url, domain, date) {
     // Delete from Chrome history
@@ -2506,7 +2555,12 @@ class BulletHistory {
           // If domain has no more days, remove domain and close view
           if (Object.keys(this.historyData[domain].days).length === 0) {
             delete this.historyData[domain];
-            this.sortedDomains = this.getSortedDomains();
+            // Re-sort based on view mode
+            if (this.viewMode === 'hour') {
+              this.sortedDomains = this.sortDomainsForHourView();
+            } else {
+              this.sortedDomains = this.getSortedDomains();
+            }
             this.closeExpandedView();
 
             // Force complete re-render
@@ -2624,6 +2678,22 @@ class BulletHistory {
     });
   }
 
+  // Delete domain with animation
+  deleteDomainWithAnimation(tldRowElement, domain) {
+    if (tldRowElement) {
+      // Add deleting class to trigger animation
+      tldRowElement.classList.add('deleting');
+
+      // Wait for animation to complete before deleting
+      setTimeout(() => {
+        this.deleteDomain(domain);
+      }, 300); // Match shrinkRow duration
+    } else {
+      // No element to animate, delete immediately
+      this.deleteDomain(domain);
+    }
+  }
+
   // Delete all history for a domain (alias for use in TLD row delete button)
   deleteDomainData(domain) {
     this.deleteDomain(domain);
@@ -2654,7 +2724,12 @@ class BulletHistory {
 
           // Remove domain from local data
           delete this.historyData[domain];
-          this.sortedDomains = this.getSortedDomains();
+          // Re-sort based on view mode
+          if (this.viewMode === 'hour') {
+            this.sortedDomains = this.sortDomainsForHourView();
+          } else {
+            this.sortedDomains = this.getSortedDomains();
+          }
 
           // Close view and refresh grid
           this.closeExpandedView();
@@ -2761,8 +2836,12 @@ class BulletHistory {
 
   // Refresh grid with current sort and filter
   refreshGrid() {
-    // Re-sort/filter domains
-    this.sortedDomains = this.getSortedDomains();
+    // Re-sort/filter domains based on current view mode
+    if (this.viewMode === 'hour') {
+      this.sortedDomains = this.sortDomainsForHourView();
+    } else {
+      this.sortedDomains = this.getSortedDomains();
+    }
 
     // Close any expanded view since row indices will change
     this.closeExpandedView();
@@ -2828,8 +2907,12 @@ class BulletHistory {
           this.saveColors();
         }
 
-        // Update sorted domains
-        this.sortedDomains = this.getSortedDomains();
+        // Update sorted domains (use appropriate method based on view mode)
+        if (this.viewMode === 'hour') {
+          this.sortedDomains = this.sortDomainsForHourView();
+        } else {
+          this.sortedDomains = this.getSortedDomains();
+        }
       }
 
       // Initialize day if new
@@ -3112,8 +3195,7 @@ class BulletHistory {
     }
 
     // Show the expanded view
-    expandedView.style.display = 'block';
-    this.updateExpandedViewPadding();
+    this.showExpandedViewAnimated();
   }
 
   // Setup zoom controls (Command+/Command-)
@@ -3291,7 +3373,7 @@ class BulletHistory {
       expandedTitle.textContent = `Recent History (${recentUrls.length} total)`;
       this.renderUrlList();
 
-      expandedView.style.display = 'block';
+      this.showExpandedViewAnimated();
     });
   }
 
@@ -3359,8 +3441,7 @@ class BulletHistory {
       expandedTitle.textContent = `Bookmarks (${bookmarks.length} total)`;
       this.renderUrlList();
 
-      expandedView.style.display = 'block';
-      this.updateExpandedViewPadding();
+      this.showExpandedViewAnimated();
     });
   }
 
@@ -3436,8 +3517,7 @@ class BulletHistory {
       expandedTitle.textContent = `Recently Closed (${closedUrls.length} total)`;
       this.renderUrlList();
 
-      expandedView.style.display = 'block';
-      this.updateExpandedViewPadding();
+      this.showExpandedViewAnimated();
     });
   }
 
