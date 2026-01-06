@@ -1,0 +1,16 @@
+# Private key - NEVER commit this!
+*.pem
+
+# Packed extension files
+*.crx
+
+# macOS files
+.DS_Store
+
+# Editor files
+.vscode/
+.idea/
+
+# Temporary files
+*.log
+*.tmp
