@@ -415,6 +415,11 @@ class BulletHistory {
         const url = new URL(item.url);
         const domain = url.hostname.replace('www.', '');
 
+        // Skip if domain is empty or whitespace
+        if (!domain || domain.trim().length === 0) {
+          continue;
+        }
+
         // Create date from timestamp and normalize to local midnight
         const visitDateObj = new Date(item.lastVisitTime);
         visitDateObj.setHours(0, 0, 0, 0);
@@ -498,6 +503,9 @@ class BulletHistory {
   getSortedDomains() {
     let domains = Object.keys(this.historyData);
 
+    // Filter out empty or whitespace-only domains
+    domains = domains.filter(domain => domain && domain.trim().length > 0);
+
     // Apply search filter
     if (this.searchFilter) {
       const filterLower = this.searchFilter.toLowerCase();
@@ -533,6 +541,9 @@ class BulletHistory {
   sortDomainsForHourView() {
     let domains = Object.keys(this.hourlyData);
     console.log('sortDomainsForHourView: Starting with', domains.length, 'domains from hourlyData');
+
+    // Filter out empty or whitespace-only domains
+    domains = domains.filter(domain => domain && domain.trim().length > 0);
 
     // Apply search filter
     if (this.searchFilter) {
@@ -787,8 +798,8 @@ class BulletHistory {
       };
       const weekdayDay = `${weekdayName} ${dayNum}${getOrdinalSuffix(dayNum)}`;
 
-      // Combine for tracking day changes
-      const dayBanner = `${monthYear}|${weekdayDay}`;
+      // Combine for tracking day changes (include datePart for click handler)
+      const dayBanner = `${monthYear}|${weekdayDay}|${datePart}`;
 
       // Calendar events column
       const eventColumn = document.createElement('div');
@@ -817,7 +828,7 @@ class BulletHistory {
       if (dayBanner !== currentDay) {
         if (daySpan > 0) {
           // Split the stored banner back into parts
-          const [prevMonthYear, prevWeekdayDay] = currentDay.split('|');
+          const [prevMonthYear, prevWeekdayDay, prevDatePart] = currentDay.split('|');
 
           const bannerCell = document.createElement('div');
           bannerCell.className = 'weekday-cell hour-view-day-banner';
@@ -854,13 +865,29 @@ class BulletHistory {
             await this.switchView('day');
           });
 
-          // Weekday/Day line
+          // Weekday/Day line (clickable to show expanded view for that day)
           const weekdayDayDiv = document.createElement('div');
           weekdayDayDiv.className = 'hour-view-weekday-day';
           weekdayDayDiv.style.fontWeight = '600';
           weekdayDayDiv.style.fontSize = '10px';
           weekdayDayDiv.style.color = '#666';
+          weekdayDayDiv.style.cursor = 'pointer';
+          weekdayDayDiv.style.transition = 'opacity 0.15s ease';
           weekdayDayDiv.textContent = prevWeekdayDay;
+          weekdayDayDiv.title = 'Click to view all URLs for this day';
+
+          // Add hover effect
+          weekdayDayDiv.addEventListener('mouseenter', () => {
+            weekdayDayDiv.style.opacity = '0.7';
+          });
+          weekdayDayDiv.addEventListener('mouseleave', () => {
+            weekdayDayDiv.style.opacity = '1';
+          });
+
+          // Click to show expanded view for this day
+          weekdayDayDiv.addEventListener('click', () => {
+            this.showDayExpandedView(prevDatePart);
+          });
 
           bannerCell.appendChild(monthYearDiv);
           bannerCell.appendChild(weekdayDayDiv);
@@ -914,7 +941,7 @@ class BulletHistory {
       // Last day banner
       if (index === this.hours.length - 1) {
         // Split the stored banner back into parts
-        const [lastMonthYear, lastWeekdayDay] = currentDay.split('|');
+        const [lastMonthYear, lastWeekdayDay, lastDatePart] = currentDay.split('|');
 
         const bannerCell = document.createElement('div');
         bannerCell.className = 'weekday-cell hour-view-day-banner';
@@ -951,13 +978,29 @@ class BulletHistory {
           await this.switchView('day');
         });
 
-        // Weekday/Day line
+        // Weekday/Day line (clickable to show expanded view for that day)
         const weekdayDayDiv = document.createElement('div');
         weekdayDayDiv.className = 'hour-view-weekday-day';
         weekdayDayDiv.style.fontWeight = '600';
         weekdayDayDiv.style.fontSize = '10px';
         weekdayDayDiv.style.color = '#666';
+        weekdayDayDiv.style.cursor = 'pointer';
+        weekdayDayDiv.style.transition = 'opacity 0.15s ease';
         weekdayDayDiv.textContent = lastWeekdayDay;
+        weekdayDayDiv.title = 'Click to view all URLs for this day';
+
+        // Add hover effect
+        weekdayDayDiv.addEventListener('mouseenter', () => {
+          weekdayDayDiv.style.opacity = '0.7';
+        });
+        weekdayDayDiv.addEventListener('mouseleave', () => {
+          weekdayDayDiv.style.opacity = '1';
+        });
+
+        // Click to show expanded view for this day
+        weekdayDayDiv.addEventListener('click', () => {
+          this.showDayExpandedView(lastDatePart);
+        });
 
         bannerCell.appendChild(monthYearDiv);
         bannerCell.appendChild(weekdayDayDiv);
@@ -1112,7 +1155,7 @@ class BulletHistory {
     // Render visible rows
     for (let rowIndex = startRow; rowIndex < endRow; rowIndex++) {
       const domain = this.sortedDomains[rowIndex];
-      if (!domain) continue;
+      if (!domain || domain.trim().length === 0) continue;
 
       // Find max visit count for THIS DOMAIN (row-normalized)
       let maxCount = 0;
@@ -2250,13 +2293,18 @@ class BulletHistory {
     const urlLink = document.createElement('a');
     urlLink.href = urlData.url;
 
-    // Truncate URLs longer than 400 characters
-    if (urlData.url.length > 400) {
-      urlLink.textContent = urlData.url.substring(0, 400) + '...';
-      urlLink.title = urlData.url; // Show full URL on hover
+    // Show title if available, otherwise show URL
+    const displayText = urlData.title || urlData.url;
+
+    // Truncate title/URL longer than 400 characters
+    if (displayText.length > 400) {
+      urlLink.textContent = displayText.substring(0, 400) + '...';
     } else {
-      urlLink.textContent = urlData.url;
+      urlLink.textContent = displayText;
     }
+
+    // Always show full URL on hover
+    urlLink.title = urlData.url;
 
     urlLink.target = '_blank';
     urlLink.rel = 'noopener noreferrer';
@@ -2548,6 +2596,9 @@ class BulletHistory {
 
     // Set display first
     expandedView.style.display = 'block';
+
+    // Scroll to top when opening or switching views
+    expandedView.scrollTop = 0;
 
     // Only animate if it wasn't already open
     if (!wasAlreadyOpen) {
@@ -3183,6 +3234,11 @@ class BulletHistory {
     try {
       const url = new URL(historyItem.url);
       const domain = url.hostname.replace('www.', '');
+
+      // Skip if domain is empty or whitespace
+      if (!domain || domain.trim().length === 0) {
+        return;
+      }
 
       // Create date from timestamp
       const visitDateObj = new Date(historyItem.lastVisitTime);
@@ -4041,11 +4097,39 @@ class BulletHistory {
 
       collectBookmarks(bookmarkTree);
 
-      // Sort by date added (most recent first)
-      bookmarks.sort((a, b) => b.dateAdded - a.dateAdded);
+      // Group bookmarks by folder first, then sort within each folder
+      const folderGroups = {};
+      bookmarks.forEach(bookmark => {
+        const folder = bookmark.folder || 'Root';
+        if (!folderGroups[folder]) {
+          folderGroups[folder] = [];
+        }
+        folderGroups[folder].push(bookmark);
+      });
+
+      // Sort within each folder group based on current sort mode
+      Object.keys(folderGroups).forEach(folder => {
+        const group = folderGroups[folder];
+        if (this.sortMode === 'popular') {
+          // Sort by visit count (for bookmarks, just keep dateAdded order as fallback)
+          group.sort((a, b) => b.dateAdded - a.dateAdded);
+        } else if (this.sortMode === 'alphabetical') {
+          // Sort alphabetically by title
+          group.sort((a, b) => a.title.localeCompare(b.title));
+        } else {
+          // Most Recent (default): Sort by dateAdded
+          group.sort((a, b) => b.dateAdded - a.dateAdded);
+        }
+      });
+
+      // Flatten back to a single array, keeping folder groups together
+      const sortedBookmarks = [];
+      Object.keys(folderGroups).sort().forEach(folder => {
+        sortedBookmarks.push(...folderGroups[folder]);
+      });
 
       // Store bookmarks and render with filtering
-      this.expandedUrls = bookmarks;
+      this.expandedUrls = sortedBookmarks;
       expandedTitle.textContent = `Bookmarks (${bookmarks.length} total)`;
       this.renderUrlList();
 
