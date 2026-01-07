@@ -1320,7 +1320,7 @@ class BulletHistory {
         const date = e.target.dataset.date;
 
         if (count > 0) {
-          tooltip.textContent = `${count} url${count !== 1 ? 's' : ''}`;
+          tooltip.textContent = `${count} visit${count !== 1 ? 's' : ''}`;
           tooltip.classList.add('visible');
 
           // Position tooltip near cursor
@@ -1840,7 +1840,7 @@ class BulletHistory {
     });
 
     // Set title (no navigation buttons for domain view)
-    expandedTitle.textContent = `${domain} (${totalVisits} total url${totalVisits !== 1 ? 's' : ''})`;
+    expandedTitle.textContent = `${domain} (${totalVisits} total visit${totalVisits !== 1 ? 's' : ''})`;
 
     // Remove navigation if it exists
     const navContainer = document.getElementById('expandedNav');
@@ -1915,7 +1915,7 @@ class BulletHistory {
     });
 
     // Set title and date
-    expandedTitle.textContent = `${domain} (${count} url${count !== 1 ? 's' : ''})`;
+    expandedTitle.textContent = `${domain} (${count} visit${count !== 1 ? 's' : ''})`;
 
     // Update or create navigation controls
     let navContainer = document.getElementById('expandedNav');
@@ -2774,7 +2774,6 @@ class BulletHistory {
           viewportWidth: 0
         };
         this.setupVirtualGrid();
-        this.updateVirtualGrid();
       } else {
         // Refresh the appropriate view
         if (this.expandedViewType === 'domain') {
@@ -2790,82 +2789,67 @@ class BulletHistory {
             viewportWidth: 0
           };
           this.setupVirtualGrid();
-          this.updateVirtualGrid();
         } else if (this.expandedViewType === 'cell') {
           // Refresh cell view based on current view mode
           if (this.viewMode === 'hour') {
             // In hour view, date is actually hourStr
-            const newCount = this.hourlyData[domain]?.[date]?.count || 0;
+            if (this.hourlyData[domain] && this.hourlyData[domain][date]) {
+              this.showDomainHourView(domain, date, this.hourlyData[domain][date].count);
 
-            // Don't close the view, just refresh it
-            this.showDomainHourView(domain, date, newCount);
+              // Force complete re-render
+              this.virtualState = {
+                startRow: -1,
+                endRow: -1,
+                startCol: -1,
+                endCol: -1,
+                viewportHeight: 0,
+                viewportWidth: 0
+              };
+              this.setupVirtualGrid();
+            } else {
+              // Hour is empty, close the view
+              this.closeExpandedView();
 
-            // Directly update the cell element in the grid
-            const colIndex = this.hours.indexOf(date);
-            const rowIndex = this.sortedDomains.indexOf(domain);
-
-            if (colIndex !== -1 && rowIndex !== -1) {
-              const cellElement = document.querySelector(`.cell[data-row-index="${rowIndex}"][data-col-index="${colIndex}"]`);
-
-              if (cellElement) {
-                // Calculate maxCount for this domain (row-normalized)
-                let maxCount = 0;
-                if (this.hourlyData[domain]) {
-                  Object.values(this.hourlyData[domain]).forEach(hourData => {
-                    maxCount = Math.max(maxCount, hourData.count);
-                  });
-                }
-
-                // Update cell appearance
-                cellElement.dataset.count = newCount;
-
-                if (newCount > 0) {
-                  const baseColor = this.colors[domain];
-                  cellElement.style.backgroundColor = this.getGitHubStyleColor(newCount, maxCount, baseColor);
-                  cellElement.classList.remove('empty');
-                  cellElement.textContent = '';
-                } else {
-                  cellElement.style.backgroundColor = '';
-                  cellElement.classList.add('empty');
-                  cellElement.textContent = '';
-                }
-              }
+              // Force complete re-render
+              this.virtualState = {
+                startRow: -1,
+                endRow: -1,
+                startCol: -1,
+                endCol: -1,
+                viewportHeight: 0,
+                viewportWidth: 0
+              };
+              this.setupVirtualGrid();
             }
           } else {
             // In day view
-            const newCount = this.historyData[domain]?.days[date]?.count || 0;
+            if (this.historyData[domain].days[date]) {
+              this.showExpandedView(domain, date, this.historyData[domain].days[date].count);
 
-            // Don't close the view, just refresh it
-            this.showExpandedView(domain, date, newCount);
+              // Force complete re-render
+              this.virtualState = {
+                startRow: -1,
+                endRow: -1,
+                startCol: -1,
+                endCol: -1,
+                viewportHeight: 0,
+                viewportWidth: 0
+              };
+              this.setupVirtualGrid();
+            } else {
+              // Day is empty, close the view
+              this.closeExpandedView();
 
-            // Directly update the cell element in the grid
-            const colIndex = this.dates.indexOf(date);
-            const rowIndex = this.sortedDomains.indexOf(domain);
-
-            if (colIndex !== -1 && rowIndex !== -1) {
-              const cellElement = document.querySelector(`.cell[data-row-index="${rowIndex}"][data-col-index="${colIndex}"]`);
-
-              if (cellElement) {
-                // Calculate maxCount for this domain (row-normalized)
-                let maxCount = 0;
-                Object.values(this.historyData[domain].days).forEach(day => {
-                  maxCount = Math.max(maxCount, day.count);
-                });
-
-                // Update cell appearance
-                cellElement.dataset.count = newCount;
-
-                if (newCount > 0) {
-                  const baseColor = this.colors[domain];
-                  cellElement.style.backgroundColor = this.getGitHubStyleColor(newCount, maxCount, baseColor);
-                  cellElement.classList.remove('empty');
-                  cellElement.textContent = '';
-                } else {
-                  cellElement.style.backgroundColor = '';
-                  cellElement.classList.add('empty');
-                  cellElement.textContent = '';
-                }
-              }
+              // Force complete re-render
+              this.virtualState = {
+                startRow: -1,
+                endRow: -1,
+                startCol: -1,
+                endCol: -1,
+                viewportHeight: 0,
+                viewportWidth: 0
+              };
+              this.setupVirtualGrid();
             }
           }
         } else if (this.expandedViewType === 'day') {
@@ -2882,7 +2866,6 @@ class BulletHistory {
             viewportWidth: 0
           };
           this.setupVirtualGrid();
-          this.updateVirtualGrid();
         } else if (this.expandedViewType === 'hour') {
           // Refresh hour view with updated data
           this.showHourExpandedView(this.currentHour);
@@ -2897,7 +2880,6 @@ class BulletHistory {
             viewportWidth: 0
           };
           this.setupVirtualGrid();
-          this.updateVirtualGrid();
         } else if (this.expandedViewType === 'full' || this.expandedViewType === 'recent') {
           // Refresh "All" view
           this.showFullHistory();
@@ -2912,7 +2894,6 @@ class BulletHistory {
             viewportWidth: 0
           };
           this.setupVirtualGrid();
-          this.updateVirtualGrid();
         } else if (this.expandedViewType === 'closed') {
           // Refresh "Closed" view
           this.showRecentlyClosed();
@@ -2927,7 +2908,6 @@ class BulletHistory {
             viewportWidth: 0
           };
           this.setupVirtualGrid();
-          this.updateVirtualGrid();
         } else {
           // For any other view (bookmarks, etc), just refresh the grid
           this.virtualState = {
@@ -2939,7 +2919,8 @@ class BulletHistory {
             viewportWidth: 0
           };
           this.setupVirtualGrid();
-          this.updateVirtualGrid();
+        }
+          }
         }
       }
     });
@@ -3467,7 +3448,7 @@ class BulletHistory {
     }
 
     // Set title
-    expandedTitle.textContent = `${formattedDate} (${totalCount} url${totalCount !== 1 ? 's' : ''})`;
+    expandedTitle.textContent = `${formattedDate} (${totalCount} visit${totalCount !== 1 ? 's' : ''})`;
 
     // Remove navigation controls if they exist (not needed for day view)
     const navContainer = document.getElementById('expandedNav');
@@ -3569,7 +3550,7 @@ class BulletHistory {
     const hourDisplay = `${displayHour}:00 ${ampm}`;
 
     // Set title
-    expandedTitle.textContent = `${domain} - ${formattedDate} ${hourDisplay} (${count} url${count !== 1 ? 's' : ''})`;
+    expandedTitle.textContent = `${domain} - ${formattedDate} ${hourDisplay} (${count} visit${count !== 1 ? 's' : ''})`;
 
     // Remove delete domain button if it exists
     const deleteBtn = document.getElementById('deleteDomain');
@@ -3606,16 +3587,16 @@ class BulletHistory {
       urls.sort((a, b) => b.lastVisit - a.lastVisit);
     }
 
-    // Add domain and hourStr to each URL (not datePart!)
+    // Add domain and date to each URL
     const urlsWithContext = urls.map(urlData => ({
       ...urlData,
       domain: domain,
-      date: hourStr  // Pass full hourStr, not just datePart
+      date: datePart
     }));
 
     // Render URLs
     urlsWithContext.forEach(urlData => {
-      const urlItem = this.createUrlItem(urlData, domain, hourStr);  // Pass hourStr, not datePart
+      const urlItem = this.createUrlItem(urlData, domain, datePart);
       urlList.appendChild(urlItem);
     });
 
@@ -3694,7 +3675,7 @@ class BulletHistory {
     }
 
     // Set title
-    expandedTitle.textContent = `${formattedDate} - ${hourDisplay} (${totalCount} url${totalCount !== 1 ? 's' : ''})`;
+    expandedTitle.textContent = `${formattedDate} - ${hourDisplay} (${totalCount} visit${totalCount !== 1 ? 's' : ''})`;
 
     // Remove navigation controls if they exist
     const navContainer = document.getElementById('expandedNav');
@@ -3713,7 +3694,7 @@ class BulletHistory {
     } else {
       // Render URLs based on sort mode
       allUrls.forEach(urlData => {
-        const urlItem = this.createUrlItem(urlData, urlData.domain, hourStr);  // Pass hourStr, not datePart
+        const urlItem = this.createUrlItem(urlData, urlData.domain, datePart);
         urlList.appendChild(urlItem);
       });
     }
