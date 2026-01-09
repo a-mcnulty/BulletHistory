@@ -10,25 +10,42 @@ const MAX_CLOSED_TABS = 50;
 const activeTabs = new Map();
 
 // Track when tabs are created
-chrome.tabs.onCreated.addListener((tab) => {
+chrome.tabs.onCreated.addListener(async (tab) => {
   if (tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
-    activeTabs.set(tab.id, {
+    const tabInfo = {
       url: tab.url,
       title: tab.title || tab.url,
-      favIconUrl: tab.favIconUrl
-    });
+      favIconUrl: tab.favIconUrl,
+      openedAt: Date.now()
+    };
+    activeTabs.set(tab.id, tabInfo);
+
+    // Persist to storage
+    const result = await chrome.storage.local.get(['openTabs']);
+    const openTabs = result.openTabs || {};
+    openTabs[tab.id] = tabInfo;
+    await chrome.storage.local.set({ openTabs });
   }
 });
 
 // Track when tabs are updated
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   // Store tab info whenever it updates
   if (tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
-    activeTabs.set(tabId, {
+    const existing = activeTabs.get(tabId);
+    const tabInfo = {
       url: tab.url,
       title: tab.title || tab.url,
-      favIconUrl: tab.favIconUrl
-    });
+      favIconUrl: tab.favIconUrl,
+      openedAt: existing?.openedAt || Date.now() // Preserve original open time
+    };
+    activeTabs.set(tabId, tabInfo);
+
+    // Persist to storage
+    const result = await chrome.storage.local.get(['openTabs']);
+    const openTabs = result.openTabs || {};
+    openTabs[tabId] = tabInfo;
+    await chrome.storage.local.set({ openTabs });
   }
 });
 
@@ -66,20 +83,38 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
   // Save back to storage
   await chrome.storage.local.set({ closedTabs });
 
-  // Clean up the active tabs map
+  // Clean up the active tabs map and storage
   activeTabs.delete(tabId);
+
+  // Remove from openTabs storage
+  const openTabsResult = await chrome.storage.local.get(['openTabs']);
+  const openTabs = openTabsResult.openTabs || {};
+  delete openTabs[tabId];
+  await chrome.storage.local.set({ openTabs });
 });
 
 // Initialize: Load existing tabs into the map
-chrome.tabs.query({}, (tabs) => {
-  tabs.forEach(tab => {
-    if (tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://') && tab.url !== 'about:blank') {
-      activeTabs.set(tab.id, {
-        url: tab.url,
-        title: tab.title || tab.url,
-        favIconUrl: tab.favIconUrl
-      });
-    }
+chrome.storage.local.get(['openTabs'], (result) => {
+  const storedTabs = result.openTabs || {};
+
+  chrome.tabs.query({}, async (tabs) => {
+    const openTabs = {};
+
+    tabs.forEach(tab => {
+      if (tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://') && tab.url !== 'about:blank') {
+        const tabInfo = {
+          url: tab.url,
+          title: tab.title || tab.url,
+          favIconUrl: tab.favIconUrl,
+          openedAt: storedTabs[tab.id]?.openedAt || Date.now() // Use stored time or current time
+        };
+        activeTabs.set(tab.id, tabInfo);
+        openTabs[tab.id] = tabInfo;
+      }
+    });
+
+    // Save updated openTabs to storage
+    await chrome.storage.local.set({ openTabs });
   });
 });
 

@@ -63,7 +63,9 @@ class BulletHistory {
       bookmarks: 1,
       frequent: 1,
       domain: 1,
-      cell: 1
+      cell: 1,
+      active: 1,
+      closed: 1
     };
 
     await this.loadColors();
@@ -1363,7 +1365,7 @@ class BulletHistory {
         const date = e.target.dataset.date;
 
         if (count > 0) {
-          tooltip.textContent = `${count} url${count !== 1 ? 's' : ''}`;
+          tooltip.textContent = `${count} visit${count !== 1 ? 's' : ''}`;
           tooltip.classList.add('visible');
 
           // Position tooltip near cursor
@@ -2049,6 +2051,8 @@ class BulletHistory {
         return 'Full History';
       case 'bookmarks':
         return 'Bookmarks';
+      case 'active':
+        return 'Active Tabs';
       case 'closed':
         return 'Recently Closed';
       case 'domain':
@@ -2112,6 +2116,12 @@ class BulletHistory {
         // Bookmarks: Always group by folder
         groupKey = urlData.folder || 'Root';
         groupLabel = groupKey;
+      } else if (this.expandedViewType === 'active') {
+        // Active tabs: Group by window
+        if (urlData.windowId) {
+          groupKey = `window-${urlData.windowId}`;
+          groupLabel = `Window ${urlData.windowId}`;
+        }
       } else if (this.expandedViewType === 'closed' || this.expandedViewType === 'full' || this.expandedViewType === 'recent') {
         // All and Closed: Only show date headers in "Most Recent" mode
         if (this.sortMode === 'recent') {
@@ -2249,6 +2259,30 @@ class BulletHistory {
         chrome.tabs.create({ url: bookmarkUrl });
       });
       actionsDiv.appendChild(manageBtn);
+    } else if (this.expandedViewType === 'active' && urlData.tabId) {
+      // For active tabs view: Show close tab button
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'icon-btn delete';
+      closeBtn.textContent = '✕';
+      closeBtn.title = 'Close tab';
+      closeBtn.addEventListener('click', async (e) => {
+        // Find the parent url-item element
+        const urlItem = e.target.closest('.url-item');
+
+        // Add deleting animation
+        if (urlItem) {
+          urlItem.classList.add('deleting');
+        }
+
+        // Close the tab
+        chrome.tabs.remove(urlData.tabId, () => {
+          // After animation, refresh the active tabs view
+          setTimeout(() => {
+            this.showActiveTabs();
+          }, 250);
+        });
+      });
+      actionsDiv.appendChild(closeBtn);
     } else {
       // For other views: Show delete button
       const deleteBtn = document.createElement('button');
@@ -2290,6 +2324,22 @@ class BulletHistory {
     favicon.width = 16;
     favicon.height = 16;
 
+    // For active tabs, make favicon also switch to the tab
+    if (this.expandedViewType === 'active' && urlData.tabId) {
+      favicon.style.cursor = 'pointer';
+      favicon.addEventListener('click', async (e) => {
+        e.preventDefault();
+        try {
+          const tab = await chrome.tabs.get(urlData.tabId);
+          await chrome.windows.update(tab.windowId, { focused: true });
+          await chrome.tabs.update(urlData.tabId, { active: true });
+        } catch (error) {
+          console.warn('Could not switch to tab:', error);
+          this.showActiveTabs();
+        }
+      });
+    }
+
     const urlLink = document.createElement('a');
     urlLink.href = urlData.url;
 
@@ -2303,8 +2353,28 @@ class BulletHistory {
       urlLink.textContent = displayText;
     }
 
-    urlLink.target = '_blank';
-    urlLink.rel = 'noopener noreferrer';
+    // For active tabs, switch to the tab instead of opening a new one
+    if (this.expandedViewType === 'active' && urlData.tabId) {
+      urlLink.href = '#'; // Prevent normal navigation
+      urlLink.addEventListener('click', async (e) => {
+        e.preventDefault();
+        try {
+          // Get the tab to find its windowId
+          const tab = await chrome.tabs.get(urlData.tabId);
+          // Focus the window
+          await chrome.windows.update(tab.windowId, { focused: true });
+          // Activate the tab
+          await chrome.tabs.update(urlData.tabId, { active: true });
+        } catch (error) {
+          console.warn('Could not switch to tab:', error);
+          // Tab might have been closed, refresh the view
+          this.showActiveTabs();
+        }
+      });
+    } else {
+      urlLink.target = '_blank';
+      urlLink.rel = 'noopener noreferrer';
+    }
 
     // Add timestamp
     const timestamp = document.createElement('span');
@@ -3169,6 +3239,8 @@ class BulletHistory {
           this.showFullHistory();
         } else if (viewType === 'bookmarks') {
           this.showBookmarks();
+        } else if (viewType === 'active') {
+          this.showActiveTabs();
         } else if (viewType === 'closed') {
           this.showRecentlyClosed();
         }
@@ -3368,6 +3440,10 @@ class BulletHistory {
 
     document.getElementById('bookmarksBtn').addEventListener('click', () => {
       this.showBookmarks();
+    });
+
+    document.getElementById('activeTabsBtn').addEventListener('click', () => {
+      this.showActiveTabs();
     });
 
     document.getElementById('recentlyClosedBtn').addEventListener('click', () => {
@@ -4208,6 +4284,102 @@ class BulletHistory {
 
       this.showExpandedViewAnimated();
     });
+  }
+
+  // Show currently active tabs with duration
+  async showActiveTabs() {
+    const expandedView = document.getElementById('expandedView');
+    const expandedTitle = document.getElementById('expandedTitle');
+    const urlList = document.getElementById('urlList');
+
+    // Hide calendar section (not used in active tabs view)
+    const calendarSection = document.getElementById('calendarSection');
+    if (calendarSection) {
+      calendarSection.style.display = 'none';
+    }
+
+    this.expandedViewType = 'active';
+    this.currentDomain = null;
+
+    expandedTitle.textContent = 'Active Tabs';
+
+    // Remove navigation and delete button if they exist
+    const navContainer = document.getElementById('expandedNav');
+    if (navContainer) navContainer.remove();
+    const deleteBtn = document.getElementById('deleteDomain');
+    if (deleteBtn) deleteBtn.remove();
+
+    // Get open tabs from storage
+    const result = await chrome.storage.local.get(['openTabs']);
+    const openTabs = result.openTabs || {};
+
+    // Get current tab info from Chrome to get windowId
+    const chromeTabs = await chrome.tabs.query({});
+    const tabWindowMap = {};
+    chromeTabs.forEach(tab => {
+      tabWindowMap[tab.id] = tab.windowId;
+    });
+
+    // Convert to array and add domain + duration + windowId
+    const activeTabsArray = Object.entries(openTabs).map(([tabId, tabData]) => {
+      const windowId = tabWindowMap[parseInt(tabId)];
+
+      try {
+        return {
+          tabId: parseInt(tabId), // Store tab ID so we can close it
+          windowId: windowId,
+          url: tabData.url,
+          title: tabData.title,
+          favIconUrl: tabData.favIconUrl,
+          openedAt: tabData.openedAt,
+          duration: Date.now() - tabData.openedAt,
+          domain: new URL(tabData.url).hostname.replace(/^www\./, ''),
+          visitCount: 1,
+          lastVisit: tabData.openedAt
+        };
+      } catch (e) {
+        return {
+          tabId: parseInt(tabId), // Store tab ID so we can close it
+          windowId: windowId,
+          url: tabData.url,
+          title: tabData.title,
+          favIconUrl: tabData.favIconUrl,
+          openedAt: tabData.openedAt,
+          duration: Date.now() - tabData.openedAt,
+          domain: tabData.url,
+          visitCount: 1,
+          lastVisit: tabData.openedAt
+        };
+      }
+    }).filter(tab => tab.windowId !== undefined); // Filter out tabs that no longer exist
+
+    // Group by window, then sort within each window by duration
+    const tabsByWindow = {};
+    activeTabsArray.forEach(tab => {
+      if (!tabsByWindow[tab.windowId]) {
+        tabsByWindow[tab.windowId] = [];
+      }
+      tabsByWindow[tab.windowId].push(tab);
+    });
+
+    // Sort tabs within each window by duration (longest first)
+    Object.values(tabsByWindow).forEach(tabs => {
+      tabs.sort((a, b) => b.duration - a.duration);
+    });
+
+    // Flatten back to array, keeping window groups together
+    // Sort windows by window ID
+    const sortedActiveTabsArray = [];
+    Object.keys(tabsByWindow).sort((a, b) => parseInt(a) - parseInt(b)).forEach(windowId => {
+      sortedActiveTabsArray.push(...tabsByWindow[windowId]);
+    });
+
+    this.expandedUrls = sortedActiveTabsArray;
+    const windowCount = Object.keys(tabsByWindow).length;
+    expandedTitle.textContent = `Active Tabs (${sortedActiveTabsArray.length} tabs in ${windowCount} window${windowCount !== 1 ? 's' : ''})`;
+    this.renderUrlList();
+
+    this.showExpandedViewAnimated();
   }
 
   // Create a closed tab item
