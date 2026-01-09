@@ -2303,9 +2303,6 @@ class BulletHistory {
       urlLink.textContent = displayText;
     }
 
-    // Always show full URL on hover
-    urlLink.title = urlData.url;
-
     urlLink.target = '_blank';
     urlLink.rel = 'noopener noreferrer';
 
