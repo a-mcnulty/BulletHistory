@@ -49,6 +49,7 @@ class BulletHistory {
     // Initialize state before loading data
     this.selectedCell = null;
     this.expandedViewType = null; // 'cell', 'domain', 'full', 'day', or 'hour'
+    this.previousExpandedViewType = null; // Track previous view type to detect switches
     this.currentDomain = null; // Track current domain for domain view
     this.currentDate = null; // Track current date for day view
     this.currentHour = null; // Track current hour for hour view
@@ -121,6 +122,36 @@ class BulletHistory {
         console.log('Calendar data updated, refreshing UI');
         // Reload calendar data and refresh UI
         this.refreshCalendarUI();
+      } else if (message.type === 'tabsUpdated') {
+        // Refresh active tabs view if it's currently open
+        if (this.expandedViewType === 'active') {
+          this.showActiveTabs();
+        }
+      }
+    });
+
+    // Listen for bookmark changes
+    chrome.bookmarks.onCreated.addListener(() => {
+      if (this.expandedViewType === 'bookmarks') {
+        this.showBookmarks();
+      }
+    });
+
+    chrome.bookmarks.onRemoved.addListener(() => {
+      if (this.expandedViewType === 'bookmarks') {
+        this.showBookmarks();
+      }
+    });
+
+    chrome.bookmarks.onChanged.addListener(() => {
+      if (this.expandedViewType === 'bookmarks') {
+        this.showBookmarks();
+      }
+    });
+
+    chrome.bookmarks.onMoved.addListener(() => {
+      if (this.expandedViewType === 'bookmarks') {
+        this.showBookmarks();
       }
     });
 
@@ -2144,20 +2175,38 @@ class BulletHistory {
         const groupHeader = document.createElement('div');
         groupHeader.className = 'date-group-header';
         groupHeader.textContent = groupLabel;
+
+        // For bookmarks view: make folder headers drop targets
+        if (this.expandedViewType === 'bookmarks') {
+          groupHeader.dataset.folderName = groupKey;
+          groupHeader.dataset.folderId = urlData.folderId;
+          groupHeader.classList.add('bookmark-folder-header');
+          this.setupFolderDropTarget(groupHeader);
+        }
+
         urlList.appendChild(groupHeader);
       }
 
       const urlItem = this.createUrlItem(urlData, urlData.domain, urlData.date);
+
+      // For bookmarks view: make items draggable and droppable
+      if (this.expandedViewType === 'bookmarks') {
+        urlItem.draggable = true;
+        urlItem.dataset.bookmarkId = urlData.id;
+        urlItem.dataset.currentFolder = urlData.folder;
+        urlItem.dataset.folderId = urlData.folderId;
+        urlItem.dataset.folderName = urlData.folder;
+        this.setupBookmarkDrag(urlItem, urlData);
+        this.setupUrlItemDropTarget(urlItem);
+      }
+
       urlList.appendChild(urlItem);
     }
 
-    // Add extra whitespace if fewer than 20 items to ensure expanded view can open fully
-    const itemsOnPage = endIndex - startIndex;
-    if (itemsOnPage < 20) {
-      const spacer = document.createElement('div');
-      spacer.style.minHeight = '400px'; // Ensure enough space for resizing
-      urlList.appendChild(spacer);
-    }
+    // Add flexible spacer to fill remaining space in the fixed-height expanded view
+    const spacer = document.createElement('div');
+    spacer.className = 'url-list-spacer';
+    urlList.appendChild(spacer);
 
     // Update or create pagination controls
     this.renderPaginationControls(totalPages, totalItems, currentPage);
@@ -2169,6 +2218,189 @@ class BulletHistory {
       expandedView.offsetHeight; // Force reflow
       expandedView.style.overflow = 'auto';
     });
+  }
+
+  // Setup drag handlers for bookmark items
+  setupBookmarkDrag(urlItem, urlData) {
+    urlItem.addEventListener('dragstart', (e) => {
+      // Store bookmark data in drag event
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', JSON.stringify({
+        bookmarkId: urlData.id,
+        currentFolder: urlData.folder,
+        currentFolderId: urlData.folderId
+      }));
+
+      // Add visual feedback - make item semi-transparent
+      urlItem.classList.add('dragging');
+    });
+
+    urlItem.addEventListener('dragend', (e) => {
+      // Remove visual feedback
+      urlItem.classList.remove('dragging');
+
+      // Remove all drop target highlights
+      document.querySelectorAll('.bookmark-folder-header').forEach(header => {
+        header.classList.remove('drag-over', 'drag-invalid');
+      });
+    });
+  }
+
+  // Setup drop target handlers for folder headers
+  setupFolderDropTarget(groupHeader) {
+    const targetFolderId = groupHeader.dataset.folderId;
+    const targetFolderName = groupHeader.dataset.folderName;
+
+    groupHeader.addEventListener('dragover', (e) => {
+      e.preventDefault(); // Allow drop
+      e.dataTransfer.dropEffect = 'move';
+
+      // Get dragged bookmark data
+      try {
+        const dragData = JSON.parse(e.dataTransfer.getData('text/plain'));
+
+        // Check if dropping on same folder (invalid)
+        if (dragData.currentFolder === targetFolderName) {
+          groupHeader.classList.add('drag-invalid');
+          groupHeader.classList.remove('drag-over');
+        } else {
+          groupHeader.classList.add('drag-over');
+          groupHeader.classList.remove('drag-invalid');
+        }
+      } catch (err) {
+        // Can't access dataTransfer during dragover in some browsers
+        // Just show as valid drop target
+        groupHeader.classList.add('drag-over');
+      }
+    });
+
+    groupHeader.addEventListener('dragleave', (e) => {
+      // Only remove highlight if actually leaving (not entering child)
+      if (!groupHeader.contains(e.relatedTarget)) {
+        groupHeader.classList.remove('drag-over', 'drag-invalid');
+      }
+    });
+
+    groupHeader.addEventListener('drop', (e) => {
+      e.preventDefault();
+      groupHeader.classList.remove('drag-over', 'drag-invalid');
+
+      // Get dragged bookmark data
+      const dragData = JSON.parse(e.dataTransfer.getData('text/plain'));
+
+      // Don't move if dropping on same folder
+      if (dragData.currentFolder === targetFolderName) {
+        console.log('Cannot drop bookmark in same folder');
+        return;
+      }
+
+      // Move the bookmark using Chrome API
+      chrome.bookmarks.move(dragData.bookmarkId, {
+        parentId: targetFolderId
+      }, (result) => {
+        if (chrome.runtime.lastError) {
+          console.error('Failed to move bookmark:', chrome.runtime.lastError);
+        } else {
+          console.log('Bookmark moved successfully');
+          // Refresh will happen automatically via onMoved listener
+        }
+      });
+    });
+  }
+
+  // Setup drop target handlers for url items within bookmark groups
+  setupUrlItemDropTarget(urlItem) {
+    const targetFolderId = urlItem.dataset.folderId;
+    const targetFolderName = urlItem.dataset.folderName;
+
+    urlItem.addEventListener('dragover', (e) => {
+      // Don't allow dropping on yourself
+      const draggedId = e.dataTransfer.types.includes('text/plain');
+      if (!draggedId) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+
+      // Find the parent folder header to highlight
+      const folderHeader = this.findFolderHeader(targetFolderName);
+
+      if (folderHeader) {
+        try {
+          const dragData = JSON.parse(e.dataTransfer.getData('text/plain'));
+
+          // Check if dropping on same folder (invalid)
+          if (dragData.currentFolder === targetFolderName) {
+            folderHeader.classList.add('drag-invalid');
+            folderHeader.classList.remove('drag-over');
+          } else {
+            folderHeader.classList.add('drag-over');
+            folderHeader.classList.remove('drag-invalid');
+          }
+        } catch (err) {
+          // Can't access dataTransfer during dragover in some browsers
+          folderHeader.classList.add('drag-over');
+        }
+      }
+    });
+
+    urlItem.addEventListener('dragleave', (e) => {
+      // Find the folder header to remove highlight
+      const folderHeader = this.findFolderHeader(targetFolderName);
+
+      if (folderHeader && !urlItem.contains(e.relatedTarget)) {
+        // Only remove if we're not moving to another element in the same group
+        const relatedFolder = e.relatedTarget?.closest('.url-item')?.dataset?.folderName;
+        const relatedHeader = e.relatedTarget?.classList?.contains('bookmark-folder-header');
+
+        if (relatedFolder !== targetFolderName && !relatedHeader) {
+          folderHeader.classList.remove('drag-over', 'drag-invalid');
+        }
+      }
+    });
+
+    urlItem.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Find and remove highlight from folder header
+      const folderHeader = this.findFolderHeader(targetFolderName);
+      if (folderHeader) {
+        folderHeader.classList.remove('drag-over', 'drag-invalid');
+      }
+
+      // Get dragged bookmark data
+      const dragData = JSON.parse(e.dataTransfer.getData('text/plain'));
+
+      // Don't move if dropping on same folder
+      if (dragData.currentFolder === targetFolderName) {
+        console.log('Cannot drop bookmark in same folder');
+        return;
+      }
+
+      // Move the bookmark using Chrome API
+      chrome.bookmarks.move(dragData.bookmarkId, {
+        parentId: targetFolderId
+      }, (result) => {
+        if (chrome.runtime.lastError) {
+          console.error('Failed to move bookmark:', chrome.runtime.lastError);
+        } else {
+          console.log('Bookmark moved successfully');
+          // Refresh will happen automatically via onMoved listener
+        }
+      });
+    });
+  }
+
+  // Helper to find folder header by folder name
+  findFolderHeader(folderName) {
+    const headers = document.querySelectorAll('.bookmark-folder-header');
+    for (const header of headers) {
+      if (header.dataset.folderName === folderName) {
+        return header;
+      }
+    }
+    return null;
   }
 
   // Render pagination controls
@@ -2649,6 +2881,7 @@ class BulletHistory {
     }
 
     this.expandedViewType = null;
+    this.previousExpandedViewType = null; // Reset so next view opens scrolls to top
     this.currentDomain = null;
     this.currentDate = null;
     this.currentHour = null;
@@ -2661,11 +2894,19 @@ class BulletHistory {
     // Check if already open - if so, skip animation
     const wasAlreadyOpen = expandedView.style.display === 'block';
 
+    // Check if we're switching to a different view type
+    const viewTypeChanged = this.previousExpandedViewType !== this.expandedViewType;
+
     // Set display first
     expandedView.style.display = 'block';
 
-    // Scroll to top when opening or switching views
-    expandedView.scrollTop = 0;
+    // Only scroll to top when switching to a different view type
+    if (viewTypeChanged) {
+      expandedView.scrollTop = 0;
+    }
+
+    // Store current view type for next comparison
+    this.previousExpandedViewType = this.expandedViewType;
 
     // Only animate if it wasn't already open
     if (!wasAlreadyOpen) {
@@ -3210,6 +3451,10 @@ class BulletHistory {
           this.showFullHistory();
         } else if (viewType === 'closed') {
           this.showRecentlyClosed();
+        } else if (viewType === 'active') {
+          this.showActiveTabs();
+        } else if (viewType === 'bookmarks') {
+          this.showBookmarks();
         } else if (viewType === 'day' && this.currentDate) {
           this.showDayExpandedView(this.currentDate);
         } else if (viewType === 'hour' && this.currentHour) {
@@ -4148,6 +4393,7 @@ class BulletHistory {
             // It's a bookmark
             try {
               bookmarks.push({
+                id: node.id, // Store bookmark ID for moving
                 url: node.url,
                 title: node.title || node.url,
                 folder: folderPath.join(' > ') || 'Root',
@@ -4170,43 +4416,68 @@ class BulletHistory {
 
       collectBookmarks(bookmarkTree);
 
-      // Group bookmarks by folder first, then sort within each folder
-      const folderGroups = {};
-      bookmarks.forEach(bookmark => {
-        const folder = bookmark.folder || 'Root';
-        if (!folderGroups[folder]) {
-          folderGroups[folder] = [];
-        }
-        folderGroups[folder].push(bookmark);
+      // Fetch actual visit counts from browser history for each bookmark
+      const fetchVisitCounts = async () => {
+        const historyPromises = bookmarks.map(bookmark => {
+          return new Promise((resolve) => {
+            chrome.history.search({ text: bookmark.url, maxResults: 1 }, (results) => {
+              if (results && results.length > 0) {
+                const historyItem = results[0];
+                bookmark.visitCount = historyItem.visitCount || 0;
+                bookmark.lastVisit = historyItem.lastVisitTime || bookmark.dateAdded;
+              } else {
+                // Not in history - never visited
+                bookmark.visitCount = 0;
+                bookmark.lastVisit = bookmark.dateAdded;
+              }
+              resolve();
+            });
+          });
+        });
+
+        await Promise.all(historyPromises);
+      };
+
+      // Fetch visit counts, then continue with grouping and sorting
+      fetchVisitCounts().then(() => {
+        // Group bookmarks by folder first, then sort within each folder
+        const folderGroups = {};
+        bookmarks.forEach(bookmark => {
+          const folder = bookmark.folder || 'Root';
+          if (!folderGroups[folder]) {
+            folderGroups[folder] = [];
+          }
+          folderGroups[folder].push(bookmark);
+        });
+
+        // Sort within each folder group based on current sort mode
+        Object.keys(folderGroups).forEach(folder => {
+          const group = folderGroups[folder];
+          if (this.sortMode === 'popular') {
+            // Sort by visit count
+            group.sort((a, b) => b.visitCount - a.visitCount);
+          } else if (this.sortMode === 'alphabetical') {
+            // Sort alphabetically by title
+            group.sort((a, b) => a.title.localeCompare(b.title));
+          } else {
+            // Most Recent (default): Sort by dateAdded
+            group.sort((a, b) => b.dateAdded - a.dateAdded);
+          }
+        });
+
+        // Flatten back to a single array, keeping folder groups together
+        const sortedBookmarks = [];
+        Object.keys(folderGroups).sort().forEach(folder => {
+          sortedBookmarks.push(...folderGroups[folder]);
+        });
+
+        // Store bookmarks and render with filtering
+        this.expandedUrls = sortedBookmarks;
+        expandedTitle.textContent = `Bookmarks (${bookmarks.length} total)`;
+        this.renderUrlList();
+
+        this.showExpandedViewAnimated();
       });
-
-      // Sort within each folder group based on current sort mode
-      Object.keys(folderGroups).forEach(folder => {
-        const group = folderGroups[folder];
-        if (this.sortMode === 'popular') {
-          // Sort by visit count (for bookmarks, just keep dateAdded order as fallback)
-          group.sort((a, b) => b.dateAdded - a.dateAdded);
-        } else if (this.sortMode === 'alphabetical') {
-          // Sort alphabetically by title
-          group.sort((a, b) => a.title.localeCompare(b.title));
-        } else {
-          // Most Recent (default): Sort by dateAdded
-          group.sort((a, b) => b.dateAdded - a.dateAdded);
-        }
-      });
-
-      // Flatten back to a single array, keeping folder groups together
-      const sortedBookmarks = [];
-      Object.keys(folderGroups).sort().forEach(folder => {
-        sortedBookmarks.push(...folderGroups[folder]);
-      });
-
-      // Store bookmarks and render with filtering
-      this.expandedUrls = sortedBookmarks;
-      expandedTitle.textContent = `Bookmarks (${bookmarks.length} total)`;
-      this.renderUrlList();
-
-      this.showExpandedViewAnimated();
     });
   }
 
@@ -4313,39 +4584,45 @@ class BulletHistory {
     const result = await chrome.storage.local.get(['openTabs']);
     const openTabs = result.openTabs || {};
 
-    // Get current tab info from Chrome to get windowId
+    // Get current tab info from Chrome to get windowId and lastAccessed
     const chromeTabs = await chrome.tabs.query({});
     const tabWindowMap = {};
+    const tabAccessMap = {};
     chromeTabs.forEach(tab => {
       tabWindowMap[tab.id] = tab.windowId;
+      tabAccessMap[tab.id] = tab.lastAccessed || 0; // Timestamp of last access
     });
 
-    // Convert to array and add domain + duration + windowId
+    // Convert to array and add domain + duration + windowId + lastAccessed
     const activeTabsArray = Object.entries(openTabs).map(([tabId, tabData]) => {
-      const windowId = tabWindowMap[parseInt(tabId)];
+      const tabIdNum = parseInt(tabId);
+      const windowId = tabWindowMap[tabIdNum];
+      const lastAccessed = tabAccessMap[tabIdNum];
 
       try {
         return {
-          tabId: parseInt(tabId), // Store tab ID so we can close it
+          tabId: tabIdNum, // Store tab ID so we can close it
           windowId: windowId,
           url: tabData.url,
           title: tabData.title,
           favIconUrl: tabData.favIconUrl,
           openedAt: tabData.openedAt,
           duration: Date.now() - tabData.openedAt,
+          lastAccessed: lastAccessed,
           domain: new URL(tabData.url).hostname.replace(/^www\./, ''),
           visitCount: 1,
           lastVisit: tabData.openedAt
         };
       } catch (e) {
         return {
-          tabId: parseInt(tabId), // Store tab ID so we can close it
+          tabId: tabIdNum, // Store tab ID so we can close it
           windowId: windowId,
           url: tabData.url,
           title: tabData.title,
           favIconUrl: tabData.favIconUrl,
           openedAt: tabData.openedAt,
           duration: Date.now() - tabData.openedAt,
+          lastAccessed: lastAccessed,
           domain: tabData.url,
           visitCount: 1,
           lastVisit: tabData.openedAt
@@ -4353,7 +4630,7 @@ class BulletHistory {
       }
     }).filter(tab => tab.windowId !== undefined); // Filter out tabs that no longer exist
 
-    // Group by window, then sort within each window by duration
+    // Group by window, then sort within each window based on sort mode
     const tabsByWindow = {};
     activeTabsArray.forEach(tab => {
       if (!tabsByWindow[tab.windowId]) {
@@ -4362,9 +4639,25 @@ class BulletHistory {
       tabsByWindow[tab.windowId].push(tab);
     });
 
-    // Sort tabs within each window by duration (longest first)
+    // Sort tabs within each window based on current sort mode
     Object.values(tabsByWindow).forEach(tabs => {
-      tabs.sort((a, b) => b.duration - a.duration);
+      if (this.sortMode === 'recent') {
+        // Most Recent: Most recently opened first (newest → oldest)
+        tabs.sort((a, b) => b.openedAt - a.openedAt);
+      } else if (this.sortMode === 'popular') {
+        // Most Popular: Most recently used/accessed first
+        tabs.sort((a, b) => b.lastAccessed - a.lastAccessed);
+      } else if (this.sortMode === 'alphabetical') {
+        // Alphabetical: By title A→Z
+        tabs.sort((a, b) => {
+          const titleA = a.title || a.url;
+          const titleB = b.title || b.url;
+          return titleA.localeCompare(titleB);
+        });
+      } else {
+        // Default: longest open first (by duration)
+        tabs.sort((a, b) => b.duration - a.duration);
+      }
     });
 
     // Flatten back to array, keeping window groups together

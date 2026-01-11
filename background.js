@@ -25,6 +25,13 @@ chrome.tabs.onCreated.addListener(async (tab) => {
     const openTabs = result.openTabs || {};
     openTabs[tab.id] = tabInfo;
     await chrome.storage.local.set({ openTabs });
+
+    // Notify panel of tab change
+    chrome.runtime.sendMessage({
+      type: 'tabsUpdated'
+    }).catch(() => {
+      // Panel might not be open, ignore error
+    });
   }
 });
 
@@ -46,6 +53,13 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     const openTabs = result.openTabs || {};
     openTabs[tabId] = tabInfo;
     await chrome.storage.local.set({ openTabs });
+
+    // Notify panel of tab change
+    chrome.runtime.sendMessage({
+      type: 'tabsUpdated'
+    }).catch(() => {
+      // Panel might not be open, ignore error
+    });
   }
 });
 
@@ -91,6 +105,13 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
   const openTabs = openTabsResult.openTabs || {};
   delete openTabs[tabId];
   await chrome.storage.local.set({ openTabs });
+
+  // Notify panel of tab change
+  chrome.runtime.sendMessage({
+    type: 'tabsUpdated'
+  }).catch(() => {
+    // Panel might not be open, ignore error
+  });
 });
 
 // Initialize: Load existing tabs into the map

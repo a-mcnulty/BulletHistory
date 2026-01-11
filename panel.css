@@ -744,6 +744,14 @@ body {
 
 .url-list {
   padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto; /* Allow url-list to grow within expanded-view */
+}
+
+.url-list-spacer {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .date-group-header {
@@ -1619,6 +1627,31 @@ body {
 
 .url-item:hover {
   transform: translateX(2px);
+}
+
+/* Drag and drop styles for bookmarks */
+.url-item.dragging {
+  opacity: 0.5;
+  cursor: move;
+}
+
+.bookmark-folder-header {
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.bookmark-folder-header.drag-over {
+  background: #e3f2fd !important;
+  border-left: 3px solid #2196f3;
+  transform: translateX(3px);
+  box-shadow: 0 2px 4px rgba(33, 150, 243, 0.2);
+}
+
+.bookmark-folder-header.drag-invalid {
+  background: #ffebee !important;
+  border-left: 3px solid #f44336;
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .tld-row {
