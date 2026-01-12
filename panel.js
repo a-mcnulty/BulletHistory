@@ -8,6 +8,7 @@ class BulletHistory {
     this.sortedDomains = []; // Cached sorted domain list
     this.filteredMode = false; // Track if domains are filtered to expanded view
     this.originalSortedDomains = null; // Store full domain list when filtering
+    this.faviconCache = {}; // Cached favicons from active tabs: { url: { favicon, timestamp } }
 
     // View mode: 'day' (default) or 'hour' - will be loaded from storage in init()
     this.viewMode = 'day';
@@ -72,6 +73,7 @@ class BulletHistory {
     };
 
     await this.loadColors();
+    await this.loadFaviconCache();
     await this.fetchHistory();
 
     // Generate dates and hours based on view mode
@@ -533,6 +535,16 @@ class BulletHistory {
   // Save colors to storage
   saveColors() {
     chrome.storage.local.set({ domainColors: this.colors });
+  }
+
+  // Load favicon cache from storage
+  async loadFaviconCache() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['faviconCache'], (result) => {
+        this.faviconCache = result.faviconCache || {};
+        resolve();
+      });
+    });
   }
 
   // Get sorted domains based on current sort mode and filter
@@ -1266,9 +1278,24 @@ class BulletHistory {
       // Favicon
       const favicon = document.createElement('img');
       favicon.className = 'tld-favicon';
-      // Use a full URL instead of just domain to get subdomain-specific favicons
+
+      // Try to find a cached favicon for this domain from any URL
+      let cachedTldFavicon = null;
+      for (const [url, data] of Object.entries(this.faviconCache)) {
+        try {
+          const urlObj = new URL(url);
+          if (urlObj.hostname === domain) {
+            cachedTldFavicon = data.favicon;
+            break;
+          }
+        } catch (e) {
+          // Invalid URL in cache, skip
+        }
+      }
+
+      // Use cached favicon if available, otherwise fall back to Google's service
       const tldFaviconSrc = `https://www.google.com/s2/favicons?domain=https://${domain}&sz=16`;
-      favicon.src = tldFaviconSrc;
+      favicon.src = cachedTldFavicon || tldFaviconSrc;
       favicon.alt = '';
       favicon.width = 16;
       favicon.height = 16;
@@ -2639,13 +2666,22 @@ class BulletHistory {
       faviconDomain = urlData.domain || urlData.url;
     }
 
-    // Use actual favicon if available and valid, otherwise fall back to Google's favicon service
+    // Priority order for favicon:
+    // 1. Cached favicon from active tabs
+    // 2. Favicon from Chrome History API
+    // 3. Google's favicon service
+    const cachedFavicon = this.faviconCache[urlData.url]?.favicon;
+    const hasCachedFavicon = cachedFavicon &&
+                             cachedFavicon.length > 0 &&
+                             !cachedFavicon.startsWith('chrome://');
+
     const hasFavicon = urlData.favIconUrl &&
                        urlData.favIconUrl.length > 0 &&
                        !urlData.favIconUrl.startsWith('chrome://');
     const fallbackSrc = `https://www.google.com/s2/favicons?domain=https://${faviconDomain}&sz=16`;
 
-    favicon.src = hasFavicon ? urlData.favIconUrl : fallbackSrc;
+    // Use cached favicon first, then urlData favicon, then fallback
+    favicon.src = hasCachedFavicon ? cachedFavicon : (hasFavicon ? urlData.favIconUrl : fallbackSrc);
     favicon.alt = '';
     favicon.width = 16;
     favicon.height = 16;
@@ -2810,19 +2846,27 @@ class BulletHistory {
     const isClosedTab = this.expandedViewType === 'closed';
     const timeLabel = isClosedTab ? 'Closed' : 'Last visited';
 
+    // Determine favicon source - check cache first
+    let previewFaviconSrc;
+    const cachedFavicon = this.faviconCache[urlData.url]?.favicon;
+    if (cachedFavicon && cachedFavicon.length > 0 && !cachedFavicon.startsWith('chrome://')) {
+      previewFaviconSrc = cachedFavicon;
+    } else if (urlData.favIconUrl) {
+      previewFaviconSrc = urlData.favIconUrl;
+    } else {
+      try {
+        const urlObj = new URL(urlData.url);
+        previewFaviconSrc = `https://www.google.com/s2/favicons?domain=https://${urlObj.hostname}&sz=32`;
+      } catch (e) {
+        previewFaviconSrc = `https://www.google.com/s2/favicons?domain=${urlData.url}&sz=32`;
+      }
+    }
+
     // Show loading state first
     previewTooltip.innerHTML = `
       <div class="url-preview-content">
         <div class="url-preview-header">
-          <img src="${(() => {
-            if (urlData.favIconUrl) return urlData.favIconUrl;
-            try {
-              const urlObj = new URL(urlData.url);
-              return `https://www.google.com/s2/favicons?domain=https://${urlObj.hostname}&sz=32`;
-            } catch (e) {
-              return `https://www.google.com/s2/favicons?domain=${urlData.url}&sz=32`;
-            }
-          })()}"
+          <img src="${previewFaviconSrc}"
                class="url-preview-favicon"
                width="32"
                height="32"
@@ -3675,11 +3719,16 @@ class BulletHistory {
       this.handleNewVisit(historyItem);
     });
 
-    // Listen for storage changes (recently closed tabs)
+    // Listen for storage changes (recently closed tabs and favicon cache)
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local' && changes.closedTabs) {
-        // If we're currently viewing recently closed, refresh it
-        if (this.expandedViewType === 'closed') {
+      if (area === 'local') {
+        // Reload favicon cache when it's updated
+        if (changes.faviconCache) {
+          this.faviconCache = changes.faviconCache.newValue || {};
+        }
+
+        // Refresh closed tabs view if currently viewing
+        if (changes.closedTabs && this.expandedViewType === 'closed') {
           this.showRecentlyClosed();
         }
       }
@@ -4892,7 +4941,13 @@ class BulletHistory {
     // Add favicon
     const favicon = document.createElement('img');
     favicon.className = 'url-favicon';
-    favicon.src = tabData.favIconUrl || `https://www.google.com/s2/favicons?domain=${tabData.url}&sz=16`;
+
+    // Check cache first, then use stored favIconUrl, then fallback to Google
+    const cachedFavicon = this.faviconCache[tabData.url]?.favicon;
+    const hasCachedFavicon = cachedFavicon &&
+                             cachedFavicon.length > 0 &&
+                             !cachedFavicon.startsWith('chrome://');
+    favicon.src = hasCachedFavicon ? cachedFavicon : (tabData.favIconUrl || `https://www.google.com/s2/favicons?domain=${tabData.url}&sz=16`);
     favicon.alt = '';
     favicon.width = 16;
     favicon.height = 16;

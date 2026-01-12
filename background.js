@@ -9,6 +9,44 @@ chrome.sidePanel
 const MAX_CLOSED_TABS = 50;
 const activeTabs = new Map();
 
+// Favicon cache settings
+const MAX_FAVICON_CACHE = 1000; // Maximum number of cached favicons
+
+// Helper function to cache favicon for a URL
+async function cacheFavicon(url, favIconUrl) {
+  if (!favIconUrl || favIconUrl.length === 0 || favIconUrl.startsWith('chrome://')) {
+    return; // Don't cache invalid favicons
+  }
+
+  try {
+    const result = await chrome.storage.local.get(['faviconCache']);
+    const cache = result.faviconCache || {};
+
+    // Add or update favicon in cache
+    cache[url] = {
+      favicon: favIconUrl,
+      timestamp: Date.now()
+    };
+
+    // Limit cache size - remove oldest entries if needed
+    const entries = Object.entries(cache);
+    if (entries.length > MAX_FAVICON_CACHE) {
+      // Sort by timestamp (oldest first)
+      entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+      // Keep only the most recent MAX_FAVICON_CACHE entries
+      const trimmedCache = {};
+      entries.slice(-MAX_FAVICON_CACHE).forEach(([url, data]) => {
+        trimmedCache[url] = data;
+      });
+      await chrome.storage.local.set({ faviconCache: trimmedCache });
+    } else {
+      await chrome.storage.local.set({ faviconCache: cache });
+    }
+  } catch (e) {
+    console.warn('Failed to cache favicon:', e);
+  }
+}
+
 // Track when tabs are created
 chrome.tabs.onCreated.addListener(async (tab) => {
   if (tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
@@ -19,6 +57,9 @@ chrome.tabs.onCreated.addListener(async (tab) => {
       openedAt: Date.now()
     };
     activeTabs.set(tab.id, tabInfo);
+
+    // Cache favicon
+    await cacheFavicon(tab.url, tab.favIconUrl);
 
     // Persist to storage
     const result = await chrome.storage.local.get(['openTabs']);
@@ -47,6 +88,9 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       openedAt: existing?.openedAt || Date.now() // Preserve original open time
     };
     activeTabs.set(tabId, tabInfo);
+
+    // Cache favicon
+    await cacheFavicon(tab.url, tab.favIconUrl);
 
     // Persist to storage
     const result = await chrome.storage.local.get(['openTabs']);
