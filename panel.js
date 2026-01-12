@@ -484,7 +484,8 @@ class BulletHistory {
           url: item.url,
           title: item.title,
           lastVisit: item.lastVisitTime,
-          visitCount: item.visitCount || 1
+          visitCount: item.visitCount || 1,
+          favIconUrl: item.favIconUrl  // Store actual favicon from Chrome
         });
 
       } catch (e) {
@@ -1265,10 +1266,33 @@ class BulletHistory {
       // Favicon
       const favicon = document.createElement('img');
       favicon.className = 'tld-favicon';
-      favicon.src = `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
+      // Use a full URL instead of just domain to get subdomain-specific favicons
+      const tldFaviconSrc = `https://www.google.com/s2/favicons?domain=https://${domain}&sz=16`;
+      favicon.src = tldFaviconSrc;
       favicon.alt = '';
       favicon.width = 16;
       favicon.height = 16;
+
+      // Add error handler with multi-level fallback
+      let tldFallbackAttempts = 0;
+      const tldFallbackUrls = [
+        tldFaviconSrc,
+        `https://${domain}/favicon.ico`,
+        `https://${domain}/favicon.png`,
+        `https://${domain}/apple-touch-icon.png`,
+        `https://icons.duckduckgo.com/ip3/${domain}.ico`
+      ];
+
+      favicon.onerror = () => {
+        tldFallbackAttempts++;
+        if (tldFallbackAttempts < tldFallbackUrls.length) {
+          favicon.src = tldFallbackUrls[tldFallbackAttempts];
+        } else {
+          // All fallbacks failed - hide the broken image
+          favicon.style.display = 'none';
+        }
+      };
+
       tldRow.appendChild(favicon);
 
       // Domain name span
@@ -2605,10 +2629,54 @@ class BulletHistory {
     // Add favicon
     const favicon = document.createElement('img');
     favicon.className = 'url-favicon';
-    favicon.src = `https://www.google.com/s2/favicons?domain=${urlData.url}&sz=16`;
+
+    // Extract hostname for favicon fallback
+    let faviconDomain;
+    try {
+      const urlObj = new URL(urlData.url);
+      faviconDomain = urlObj.hostname;
+    } catch (e) {
+      faviconDomain = urlData.domain || urlData.url;
+    }
+
+    // Use actual favicon if available and valid, otherwise fall back to Google's favicon service
+    const hasFavicon = urlData.favIconUrl &&
+                       urlData.favIconUrl.length > 0 &&
+                       !urlData.favIconUrl.startsWith('chrome://');
+    const fallbackSrc = `https://www.google.com/s2/favicons?domain=https://${faviconDomain}&sz=16`;
+
+    favicon.src = hasFavicon ? urlData.favIconUrl : fallbackSrc;
     favicon.alt = '';
     favicon.width = 16;
     favicon.height = 16;
+
+    // Add error handler with multi-level fallback
+    let fallbackAttempts = 0;
+    const fallbackUrls = [];
+
+    try {
+      const urlObj = new URL(urlData.url);
+      const origin = `${urlObj.protocol}//${urlObj.hostname}`;
+      fallbackUrls.push(
+        fallbackSrc,
+        `${origin}/favicon.ico`,
+        `${origin}/favicon.png`,
+        `${origin}/apple-touch-icon.png`,
+        `https://icons.duckduckgo.com/ip3/${urlObj.hostname}.ico`
+      );
+    } catch (e) {
+      fallbackUrls.push(fallbackSrc);
+    }
+
+    favicon.onerror = () => {
+      fallbackAttempts++;
+      if (fallbackAttempts < fallbackUrls.length) {
+        favicon.src = fallbackUrls[fallbackAttempts];
+      } else {
+        // All fallbacks failed - hide the broken image
+        favicon.style.display = 'none';
+      }
+    };
 
     // For active tabs, make favicon also switch to the tab
     if (this.expandedViewType === 'active' && urlData.tabId) {
@@ -2746,11 +2814,20 @@ class BulletHistory {
     previewTooltip.innerHTML = `
       <div class="url-preview-content">
         <div class="url-preview-header">
-          <img src="https://www.google.com/s2/favicons?domain=${urlData.url}&sz=32"
+          <img src="${(() => {
+            if (urlData.favIconUrl) return urlData.favIconUrl;
+            try {
+              const urlObj = new URL(urlData.url);
+              return `https://www.google.com/s2/favicons?domain=https://${urlObj.hostname}&sz=32`;
+            } catch (e) {
+              return `https://www.google.com/s2/favicons?domain=${urlData.url}&sz=32`;
+            }
+          })()}"
                class="url-preview-favicon"
                width="32"
                height="32"
-               alt="">
+               alt=""
+               onerror="(function(t){const tries=['1','2','3','4','5'];const idx=parseInt(t.dataset.tried||'0');if(idx<tries.length){t.dataset.tried=tries[idx];try{const u=new URL('${urlData.url}');const urls=[u.protocol+'//'+u.hostname+'/favicon.ico',u.protocol+'//'+u.hostname+'/favicon.png',u.protocol+'//'+u.hostname+'/apple-touch-icon.png','https://icons.duckduckgo.com/ip3/'+u.hostname+'.ico',''];t.src=urls[idx]||'';if(!urls[idx])t.style.display='none';}catch(e){t.style.display='none';}}else{t.style.display='none';}})(this)">
           <div class="url-preview-title">${urlData.title || 'Untitled'}</div>
         </div>
         <div class="url-preview-url">${urlData.url}</div>
@@ -2788,11 +2865,20 @@ class BulletHistory {
     previewTooltip.innerHTML = `
       <div class="url-preview-content">
         <div class="url-preview-header">
-          <img src="https://www.google.com/s2/favicons?domain=${urlData.url}&sz=32"
+          <img src="${(() => {
+            if (urlData.favIconUrl) return urlData.favIconUrl;
+            try {
+              const urlObj = new URL(urlData.url);
+              return `https://www.google.com/s2/favicons?domain=https://${urlObj.hostname}&sz=32`;
+            } catch (e) {
+              return `https://www.google.com/s2/favicons?domain=${urlData.url}&sz=32`;
+            }
+          })()}"
                class="url-preview-favicon"
                width="32"
                height="32"
-               alt="">
+               alt=""
+               onerror="(function(t){const tries=['1','2','3','4','5'];const idx=parseInt(t.dataset.tried||'0');if(idx<tries.length){t.dataset.tried=tries[idx];try{const u=new URL('${urlData.url}');const urls=[u.protocol+'//'+u.hostname+'/favicon.ico',u.protocol+'//'+u.hostname+'/favicon.png',u.protocol+'//'+u.hostname+'/apple-touch-icon.png','https://icons.duckduckgo.com/ip3/'+u.hostname+'.ico',''];t.src=urls[idx]||'';if(!urls[idx])t.style.display='none';}catch(e){t.style.display='none';}}else{t.style.display='none';}})(this)">
           <div class="url-preview-title">${ogData.title || urlData.title || 'Untitled'}</div>
         </div>
         ${descriptionHtml}
@@ -3657,13 +3743,15 @@ class BulletHistory {
         // URL exists, increment count
         urlData.visitCount++;
         urlData.lastVisit = historyItem.lastVisitTime;
+        urlData.favIconUrl = historyItem.favIconUrl;  // Update favicon
       } else {
         // New URL
         this.historyData[domain].days[visitDate].urls.push({
           url: historyItem.url,
           title: historyItem.title,
           lastVisit: historyItem.lastVisitTime,
-          visitCount: 1
+          visitCount: 1,
+          favIconUrl: historyItem.favIconUrl
         });
       }
 
@@ -4407,6 +4495,7 @@ class BulletHistory {
         title: item.title || item.url,
         visitCount: item.visitCount,
         lastVisit: item.lastVisitTime,
+        favIconUrl: item.favIconUrl,
         domain: new URL(item.url).hostname.replace(/^www\./, ''),
         date: new Date(item.lastVisitTime).toISOString().split('T')[0]
       }));
@@ -4488,6 +4577,7 @@ class BulletHistory {
                 const historyItem = results[0];
                 bookmark.visitCount = historyItem.visitCount || 0;
                 bookmark.lastVisit = historyItem.lastVisitTime || bookmark.dateAdded;
+                bookmark.favIconUrl = historyItem.favIconUrl;  // Get actual favicon from history
               } else {
                 // Not in history - never visited
                 bookmark.visitCount = 0;
