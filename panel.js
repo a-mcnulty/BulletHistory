@@ -6,6 +6,8 @@ class BulletHistory {
     this.colors = {}; // { domain: color }
     this.dates = [];
     this.sortedDomains = []; // Cached sorted domain list
+    this.filteredMode = false; // Track if domains are filtered to expanded view
+    this.originalSortedDomains = null; // Store full domain list when filtering
 
     // View mode: 'day' (default) or 'hour' - will be loaded from storage in init()
     this.viewMode = 'day';
@@ -631,6 +633,52 @@ class BulletHistory {
       default:
         return domains;
     }
+  }
+
+  // Filter domains to only those present in expanded view
+  filterDomainsToExpandedView() {
+    if (!this.expandedUrls || this.expandedUrls.length === 0) {
+      return;
+    }
+
+    // Store original domain list if not already stored
+    if (!this.filteredMode) {
+      this.originalSortedDomains = [...this.sortedDomains];
+    }
+
+    // Extract unique domains from expanded URLs
+    const expandedDomains = new Set();
+    this.expandedUrls.forEach(item => {
+      if (item.domain) {
+        expandedDomains.add(item.domain);
+      }
+    });
+
+    // Filter sortedDomains to only those in expandedDomains
+    this.sortedDomains = this.sortedDomains.filter(domain => expandedDomains.has(domain));
+
+    // Mark as filtered
+    this.filteredMode = true;
+
+    // Update virtual grid with filtered domains
+    this.setupVirtualGrid();
+    this.updateVirtualGrid();
+  }
+
+  // Restore full domain list
+  restoreAllDomains() {
+    if (!this.filteredMode || !this.originalSortedDomains) {
+      return;
+    }
+
+    // Restore original domain list
+    this.sortedDomains = [...this.originalSortedDomains];
+    this.originalSortedDomains = null;
+    this.filteredMode = false;
+
+    // Update virtual grid with full domain list
+    this.setupVirtualGrid();
+    this.updateVirtualGrid();
   }
 
   // Render date header
@@ -1836,6 +1884,9 @@ class BulletHistory {
     this.expandedViewType = 'full';
     this.currentDomain = null;
 
+    // Restore full domain list (full history shows all domains)
+    this.restoreAllDomains();
+
     // Calculate total visits across all domains
     let totalVisits = 0;
     Object.values(this.historyData).forEach(domainData => {
@@ -1975,6 +2026,9 @@ class BulletHistory {
     // Set view type
     this.expandedViewType = 'cell';
     this.currentDomain = null;
+
+    // Restore full domain list (cell view is domain-specific)
+    this.restoreAllDomains();
 
     // Remove delete domain button if it exists
     const deleteBtn = document.getElementById('deleteDomain');
@@ -2864,6 +2918,9 @@ class BulletHistory {
   // Close expanded view with animation
   closeExpandedView() {
     const expandedView = document.getElementById('expandedView');
+
+    // Restore full domain list if it was filtered
+    this.restoreAllDomains();
 
     // Add slide-out animation
     expandedView.classList.add('slide-out');
@@ -3791,6 +3848,9 @@ class BulletHistory {
     this.currentDomain = null;
     this.currentDate = dateStr;
 
+    // Restore full domain list (day view is date-specific)
+    this.restoreAllDomains();
+
     // Remove delete domain button if it exists
     const deleteBtn = document.getElementById('deleteDomain');
     if (deleteBtn) {
@@ -4008,6 +4068,9 @@ class BulletHistory {
     this.currentDomain = null;
     this.currentDate = null;
     this.currentHour = hourStr;
+
+    // Restore full domain list (hour view is hour-specific)
+    this.restoreAllDomains();
 
     // Remove delete domain button if it exists
     const deleteBtn = document.getElementById('deleteDomain');
@@ -4476,6 +4539,10 @@ class BulletHistory {
         expandedTitle.textContent = `Bookmarks (${bookmarks.length} total)`;
         this.renderUrlList();
 
+        // Restore full domain list first, then filter to bookmarked domains
+        this.restoreAllDomains();
+        this.filterDomainsToExpandedView();
+
         this.showExpandedViewAnimated();
       });
     });
@@ -4552,6 +4619,10 @@ class BulletHistory {
       this.expandedUrls = closedUrls;
       expandedTitle.textContent = `Recently Closed (${closedUrls.length} total)`;
       this.renderUrlList();
+
+      // Restore full domain list first, then filter to closed tab domains
+      this.restoreAllDomains();
+      this.filterDomainsToExpandedView();
 
       this.showExpandedViewAnimated();
     });
@@ -4671,6 +4742,10 @@ class BulletHistory {
     const windowCount = Object.keys(tabsByWindow).length;
     expandedTitle.textContent = `Active Tabs (${sortedActiveTabsArray.length} tabs in ${windowCount} window${windowCount !== 1 ? 's' : ''})`;
     this.renderUrlList();
+
+    // Restore full domain list first, then filter to active tab domains
+    this.restoreAllDomains();
+    this.filterDomainsToExpandedView();
 
     this.showExpandedViewAnimated();
   }
