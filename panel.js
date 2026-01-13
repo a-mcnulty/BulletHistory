@@ -1935,6 +1935,9 @@ class BulletHistory {
     this.expandedViewType = 'full';
     this.currentDomain = null;
 
+    // Set active menu button
+    this.setActiveMenuButton('recentHistoryBtn');
+
     // Restore full domain list (full history shows all domains)
     this.restoreAllDomains();
 
@@ -2010,6 +2013,9 @@ class BulletHistory {
     this.expandedViewType = 'domain';
     this.currentDomain = domain;
 
+    // Clear active menu button (domain view is not triggered by menu buttons)
+    this.setActiveMenuButton(null);
+
     // Calculate total visits
     const domainData = this.historyData[domain];
     let totalVisits = 0;
@@ -2077,6 +2083,9 @@ class BulletHistory {
     // Set view type
     this.expandedViewType = 'cell';
     this.currentDomain = null;
+
+    // Clear active menu button (cell view is not triggered by menu buttons)
+    this.setActiveMenuButton(null);
 
     // Restore full domain list (cell view is domain-specific)
     this.restoreAllDomains();
@@ -2567,6 +2576,24 @@ class BulletHistory {
     urlList.appendChild(pagination);
   }
 
+  // Format duration in human-readable format (4m, 2h, 3d)
+  formatDuration(durationMs) {
+    const seconds = Math.floor(durationMs / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (days > 0) {
+      return `${days}d`;
+    } else if (hours > 0) {
+      return `${hours}h`;
+    } else if (minutes > 0) {
+      return `${minutes}m`;
+    } else {
+      return `${seconds}s`;
+    }
+  }
+
   // Create a URL item element
   createUrlItem(urlData, domain, date) {
     const urlItem = document.createElement('div');
@@ -2578,7 +2605,13 @@ class BulletHistory {
 
     const countSpan = document.createElement('span');
     countSpan.className = 'url-item-count';
-    countSpan.textContent = `${urlData.visitCount}×`;
+
+    // For active tabs: show duration instead of visit count
+    if (this.expandedViewType === 'active' && urlData.duration !== undefined) {
+      countSpan.textContent = this.formatDuration(urlData.duration);
+    } else {
+      countSpan.textContent = `${urlData.visitCount}×`;
+    }
 
     const actionsDiv = document.createElement('div');
     actionsDiv.className = 'url-item-actions';
@@ -3052,6 +3085,9 @@ class BulletHistory {
     // Restore full domain list if it was filtered
     this.restoreAllDomains();
 
+    // Clear active menu button state
+    this.setActiveMenuButton(null);
+
     // Add slide-out animation
     expandedView.classList.add('slide-out');
 
@@ -3060,6 +3096,12 @@ class BulletHistory {
       expandedView.style.display = 'none';
       expandedView.classList.remove('slide-out');
       this.updateExpandedViewPadding();
+
+      // Trigger virtual grid update after viewport height changes
+      // Use another requestAnimationFrame to ensure padding update is complete
+      requestAnimationFrame(() => {
+        this.updateVirtualGrid();
+      });
     }, 200); // Match slide-out duration
 
     if (this.selectedCell) {
@@ -3110,6 +3152,11 @@ class BulletHistory {
     }
 
     this.updateExpandedViewPadding();
+
+    // Trigger virtual grid update after viewport height changes
+    requestAnimationFrame(() => {
+      this.updateVirtualGrid();
+    });
   }
 
   // Navigate to previous or next day for the same domain
@@ -3874,20 +3921,55 @@ class BulletHistory {
   // Setup bottom menu buttons
   setupBottomMenu() {
     document.getElementById('recentHistoryBtn').addEventListener('click', () => {
-      this.showFullHistory();
+      // Toggle: if full history is already open, close it
+      if (this.expandedViewType === 'full') {
+        this.closeExpandedView();
+      } else {
+        this.showFullHistory();
+      }
     });
 
     document.getElementById('bookmarksBtn').addEventListener('click', () => {
-      this.showBookmarks();
+      // Toggle: if bookmarks is already open, close it
+      if (this.expandedViewType === 'bookmarks') {
+        this.closeExpandedView();
+      } else {
+        this.showBookmarks();
+      }
     });
 
     document.getElementById('activeTabsBtn').addEventListener('click', () => {
-      this.showActiveTabs();
+      // Toggle: if active tabs is already open, close it
+      if (this.expandedViewType === 'active') {
+        this.closeExpandedView();
+      } else {
+        this.showActiveTabs();
+      }
     });
 
     document.getElementById('recentlyClosedBtn').addEventListener('click', () => {
-      this.showRecentlyClosed();
+      // Toggle: if recently closed is already open, close it
+      if (this.expandedViewType === 'closed') {
+        this.closeExpandedView();
+      } else {
+        this.showRecentlyClosed();
+      }
     });
+  }
+
+  // Set active state for bottom menu buttons
+  setActiveMenuButton(activeButtonId) {
+    // Remove active class from all menu buttons
+    const menuButtons = document.querySelectorAll('.menu-btn');
+    menuButtons.forEach(btn => btn.classList.remove('active'));
+
+    // Add active class to the specified button
+    if (activeButtonId) {
+      const activeButton = document.getElementById(activeButtonId);
+      if (activeButton) {
+        activeButton.classList.add('active');
+      }
+    }
   }
 
   // Scroll to show tomorrow on load
@@ -3984,6 +4066,9 @@ class BulletHistory {
     this.expandedViewType = 'day';
     this.currentDomain = null;
     this.currentDate = dateStr;
+
+    // Clear active menu button (day view is not triggered by menu buttons)
+    this.setActiveMenuButton(null);
 
     // Restore full domain list (day view is date-specific)
     this.restoreAllDomains();
@@ -4205,6 +4290,9 @@ class BulletHistory {
     this.currentDomain = null;
     this.currentDate = null;
     this.currentHour = hourStr;
+
+    // Clear active menu button (hour view is not triggered by menu buttons)
+    this.setActiveMenuButton(null);
 
     // Restore full domain list (hour view is hour-specific)
     this.restoreAllDomains();
@@ -4513,6 +4601,11 @@ class BulletHistory {
         // Save the new height to storage
         const newHeight = expandedView.offsetHeight;
         chrome.storage.local.set({ expandedViewHeight: newHeight });
+
+        // Trigger virtual grid update after resize
+        requestAnimationFrame(() => {
+          this.updateVirtualGrid();
+        });
       }
     });
   }
@@ -4575,6 +4668,9 @@ class BulletHistory {
     this.expandedViewType = 'bookmarks';
     this.currentDomain = null;
 
+    // Set active menu button
+    this.setActiveMenuButton('bookmarksBtn');
+
     expandedTitle.textContent = 'Bookmarks';
 
     // Remove navigation and delete button if they exist
@@ -4621,18 +4717,26 @@ class BulletHistory {
       const fetchVisitCounts = async () => {
         const historyPromises = bookmarks.map(bookmark => {
           return new Promise((resolve) => {
-            chrome.history.search({ text: bookmark.url, maxResults: 1 }, (results) => {
-              if (results && results.length > 0) {
-                const historyItem = results[0];
-                bookmark.visitCount = historyItem.visitCount || 0;
-                bookmark.lastVisit = historyItem.lastVisitTime || bookmark.dateAdded;
-                bookmark.favIconUrl = historyItem.favIconUrl;  // Get actual favicon from history
+            // Use exact URL match instead of text search to avoid variations
+            chrome.history.getVisits({ url: bookmark.url }, (visits) => {
+              if (visits && visits.length > 0) {
+                // Count unique visits (visits array contains all visit times)
+                bookmark.visitCount = visits.length;
+                bookmark.lastVisit = Math.max(...visits.map(v => v.visitTime));
+
+                // Also fetch favicon from history search
+                chrome.history.search({ text: bookmark.url, maxResults: 1 }, (results) => {
+                  if (results && results.length > 0) {
+                    bookmark.favIconUrl = results[0].favIconUrl;
+                  }
+                  resolve();
+                });
               } else {
                 // Not in history - never visited
                 bookmark.visitCount = 0;
                 bookmark.lastVisit = bookmark.dateAdded;
+                resolve();
               }
-              resolve();
             });
           });
         });
@@ -4702,6 +4806,9 @@ class BulletHistory {
     this.expandedViewType = 'closed';
     this.currentDomain = null;
 
+    // Set active menu button
+    this.setActiveMenuButton('recentlyClosedBtn');
+
     expandedTitle.textContent = 'Recently Closed';
 
     // Remove navigation and delete button if they exist
@@ -4739,31 +4846,56 @@ class BulletHistory {
         }
       });
 
-      // Sort based on current sort mode
-      if (this.sortMode === 'popular') {
-        // Most Popular: For closed tabs, just use most recent since we don't have visit counts
-        closedUrls.sort((a, b) => b.closedAt - a.closedAt);
-      } else if (this.sortMode === 'alphabetical') {
-        // Alphabetical: Sort by domain, then by URL
-        closedUrls.sort((a, b) => {
-          const domainCompare = a.domain.localeCompare(b.domain);
-          if (domainCompare !== 0) return domainCompare;
-          return a.url.localeCompare(b.url);
+      // Fetch actual visit counts from browser history for each closed tab
+      const fetchVisitCounts = async () => {
+        const historyPromises = closedUrls.map(closedTab => {
+          return new Promise((resolve) => {
+            // Use exact URL match to get visit count
+            chrome.history.getVisits({ url: closedTab.url }, (visits) => {
+              if (visits && visits.length > 0) {
+                // Count unique visits
+                closedTab.visitCount = visits.length;
+                closedTab.lastVisit = Math.max(...visits.map(v => v.visitTime));
+              } else {
+                // Not in history
+                closedTab.visitCount = 0;
+              }
+              resolve();
+            });
+          });
         });
-      } else {
-        // Most Recent (default): Sort by most recently closed
-        closedUrls.sort((a, b) => b.closedAt - a.closedAt);
-      }
 
-      this.expandedUrls = closedUrls;
-      expandedTitle.textContent = `Recently Closed (${closedUrls.length} total)`;
-      this.renderUrlList();
+        await Promise.all(historyPromises);
+      };
 
-      // Restore full domain list first, then filter to closed tab domains
-      this.restoreAllDomains();
-      this.filterDomainsToExpandedView();
+      // Fetch visit counts, then continue with sorting
+      fetchVisitCounts().then(() => {
+        // Sort based on current sort mode
+        if (this.sortMode === 'popular') {
+          // Most Popular: Sort by visit count
+          closedUrls.sort((a, b) => b.visitCount - a.visitCount);
+        } else if (this.sortMode === 'alphabetical') {
+          // Alphabetical: Sort by domain, then by URL
+          closedUrls.sort((a, b) => {
+            const domainCompare = a.domain.localeCompare(b.domain);
+            if (domainCompare !== 0) return domainCompare;
+            return a.url.localeCompare(b.url);
+          });
+        } else {
+          // Most Recent (default): Sort by most recently closed
+          closedUrls.sort((a, b) => b.closedAt - a.closedAt);
+        }
 
-      this.showExpandedViewAnimated();
+        this.expandedUrls = closedUrls;
+        expandedTitle.textContent = `Recently Closed (${closedUrls.length} total)`;
+        this.renderUrlList();
+
+        // Restore full domain list first, then filter to closed tab domains
+        this.restoreAllDomains();
+        this.filterDomainsToExpandedView();
+
+        this.showExpandedViewAnimated();
+      });
     });
   }
 
@@ -4781,6 +4913,9 @@ class BulletHistory {
 
     this.expandedViewType = 'active';
     this.currentDomain = null;
+
+    // Set active menu button
+    this.setActiveMenuButton('activeTabsBtn');
 
     expandedTitle.textContent = 'Active Tabs';
 
