@@ -12,7 +12,15 @@
     <div class="header-section">
       <div class="header-spacer">
         <div class="header-controls">
-          <button id="calendarSettingsBtn" class="calendar-settings-btn" title="Calendar Settings">🗓️</button>
+          <button id="calendarSettingsBtn" class="calendar-settings-btn" title="Calendar Settings">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="3" y="5" width="18" height="16" rx="2" fill="#4285F4"/>
+              <rect x="3" y="5" width="18" height="5" rx="2" fill="#1967D2"/>
+              <rect x="6" y="2" width="2" height="5" rx="1" fill="#5F6368"/>
+              <rect x="16" y="2" width="2" height="5" rx="1" fill="#5F6368"/>
+              <text x="12" y="17" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="white" text-anchor="middle">31</text>
+            </svg>
+          </button>
           <div class="view-toggle" id="viewToggle">
             <button class="view-toggle-btn" data-view="hour">Hour</button>
             <button class="view-toggle-btn active" data-view="day">Day</button>
@@ -128,6 +136,17 @@
           <div class="calendar-list" id="calendarList"></div>
           <button class="btn-secondary" id="refreshCalendarsBtn">
             🔄 Refresh Calendar List
+          </button>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="calendar-actions-section" id="calendarActionsSection" style="display: none;">
+          <h3>Quick Actions</h3>
+          <button class="btn-primary" id="createEventBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-right: 6px;">
+              <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" fill="currentColor"/>
+            </svg>
+            Create Event in Google Calendar
           </button>
         </div>
       </div>
