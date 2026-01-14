@@ -3,7 +3,6 @@
   "name": "Bullet History",
   "version": "1.1.0",
   "description": "Visual bullet journal for browsing history with Google Calendar integration",
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuA/L9RNEArpt5qS6I6Eq+hWEA7TedesuZz6LdJPp7wAzvXgjxmr3RwMv/nIYY5OwMDxMu1Gq49q5bACMBhDOUTPWfZFOndQwY8AfWJLYu/HIw0d3z8y+UB+oCEjJXMK5YWhPBb71TZmr+G5FgU69zp+QCjvfdTU5SrHxiqM4/zQCVU9Slhx7aYjCsjppZNVcbTvoTs0KMBkkxhBeUziwi47OuGHmojCDoE7ASPGsL/ZIbmrGVpiuovyIEetWPSnE90WofwyssjZNfyRoRY/PulekQ454KHEyR/0ISSSNFxxPSAPcJFPCDtk0kR6xRjthsn5wibqYycv5Rsefz9BZnQIDAQAB",
   "icons": {
     "16": "icon.png",
     "48": "icon.png",
@@ -15,7 +14,6 @@
     "storage",
     "bookmarks",
     "sidePanel",
-    "sessions",
     "tabs",
     "identity",
     "alarms"
