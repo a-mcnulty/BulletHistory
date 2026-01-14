@@ -5249,6 +5249,58 @@ class BulletHistory {
       }
     });
 
+    // Create event in Google Calendar (deep link)
+    const createEventBtn = document.getElementById('createEventBtn');
+    if (createEventBtn) {
+      createEventBtn.addEventListener('click', () => {
+        // Build Google Calendar event creation URL
+        // Format: https://calendar.google.com/calendar/r/eventedit?dates=START/END&text=TITLE
+
+        // Determine date to pre-fill:
+        // 1. If viewing a specific day/hour in expanded view, use that date
+        // 2. Otherwise, use today's date
+        let targetDate;
+
+        if (this.currentDate) {
+          // Day view - use the specific date
+          targetDate = new Date(this.currentDate + 'T12:00:00');
+        } else if (this.currentHour) {
+          // Hour view - extract date from hour string
+          const hourDate = this.currentHour.split('T')[0];
+          targetDate = new Date(hourDate + 'T12:00:00');
+        } else {
+          // Default to today
+          targetDate = new Date();
+          targetDate.setHours(12, 0, 0, 0);
+        }
+
+        // Format dates for Google Calendar URL (ISO format without separators)
+        // Example: 20260113T120000Z
+        const startTime = new Date(targetDate);
+        const endTime = new Date(targetDate);
+        endTime.setHours(endTime.getHours() + 1); // Default 1-hour duration
+
+        const formatGoogleDate = (date) => {
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          const hours = String(date.getHours()).padStart(2, '0');
+          const minutes = String(date.getMinutes()).padStart(2, '0');
+          const seconds = String(date.getSeconds()).padStart(2, '0');
+          return `${year}${month}${day}T${hours}${minutes}${seconds}Z`;
+        };
+
+        const startStr = formatGoogleDate(startTime);
+        const endStr = formatGoogleDate(endTime);
+
+        // Build URL
+        const url = `https://calendar.google.com/calendar/r/eventedit?dates=${startStr}/${endStr}`;
+
+        // Open in new tab
+        chrome.tabs.create({ url });
+      });
+    }
+
     // Toggle calendar section in expanded view
     if (sectionHeader) {
       sectionHeader.addEventListener('click', () => {
@@ -5288,6 +5340,7 @@ class BulletHistory {
     const connectBtn = document.getElementById('connectCalendarBtn');
     const disconnectBtn = document.getElementById('disconnectCalendarBtn');
     const calendarListSection = document.getElementById('calendarListSection');
+    const calendarActionsSection = document.getElementById('calendarActionsSection');
 
     if (authStatus.authenticated) {
       authStatusEl.classList.add('authenticated');
@@ -5295,6 +5348,9 @@ class BulletHistory {
       connectBtn.style.display = 'none';
       disconnectBtn.style.display = 'block';
       calendarListSection.style.display = 'block';
+      if (calendarActionsSection) {
+        calendarActionsSection.style.display = 'block';
+      }
 
       this.renderCalendarList();
     } else {
@@ -5303,6 +5359,9 @@ class BulletHistory {
       connectBtn.style.display = 'block';
       disconnectBtn.style.display = 'none';
       calendarListSection.style.display = 'none';
+      if (calendarActionsSection) {
+        calendarActionsSection.style.display = 'none';
+      }
     }
   }
 
