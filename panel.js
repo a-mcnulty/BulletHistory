@@ -2245,8 +2245,9 @@ class BulletHistory {
     const startIndex = (currentPage - 1) * this.itemsPerPage;
     const endIndex = Math.min(startIndex + this.itemsPerPage, totalItems);
 
-    // Clear list
+    // Clear list and set view-specific class
     urlList.innerHTML = '';
+    urlList.classList.toggle('bookmarks-view', this.expandedViewType === 'bookmarks');
 
     // Render items for current page with grouping headers
     let currentGroup = null;
@@ -2315,6 +2316,11 @@ class BulletHistory {
       }
 
       urlList.appendChild(urlItem);
+    }
+
+    // For bookmarks view: set up container-level drag handlers to catch drops in gaps
+    if (this.expandedViewType === 'bookmarks') {
+      this.setupUrlListDropTarget(urlList);
     }
 
     // Add flexible spacer to fill remaining space in the fixed-height expanded view
@@ -2515,6 +2521,121 @@ class BulletHistory {
       }
     }
     return null;
+  }
+
+  // Setup drop target handlers for the url-list container (catches drops in gaps between items)
+  setupUrlListDropTarget(urlList) {
+    // Remove existing handlers to avoid duplicates
+    urlList.removeEventListener('dragover', urlList._dragoverHandler);
+    urlList.removeEventListener('drop', urlList._dropHandler);
+    urlList.removeEventListener('dragleave', urlList._dragleaveHandler);
+
+    // Find nearest folder based on Y position
+    const findNearestFolder = (y) => {
+      const headers = urlList.querySelectorAll('.bookmark-folder-header');
+      let nearestHeader = null;
+      let minDistance = Infinity;
+
+      headers.forEach(header => {
+        const rect = header.getBoundingClientRect();
+        const headerMiddle = rect.top + rect.height / 2;
+        const distance = Math.abs(y - headerMiddle);
+
+        // Also check if we're below this header (prefer the folder we're in)
+        if (y >= rect.top && (nearestHeader === null || rect.top > nearestHeader.getBoundingClientRect().top)) {
+          nearestHeader = header;
+          minDistance = 0;
+        } else if (distance < minDistance && nearestHeader === null) {
+          nearestHeader = header;
+          minDistance = distance;
+        }
+      });
+
+      return nearestHeader;
+    };
+
+    urlList._dragoverHandler = (e) => {
+      // Only handle if the direct target is the urlList or spacer (not url-items or headers)
+      if (e.target !== urlList && !e.target.classList.contains('url-list-spacer')) {
+        return;
+      }
+
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+
+      // Find nearest folder and highlight it
+      const nearestHeader = findNearestFolder(e.clientY);
+      if (nearestHeader) {
+        // Clear other highlights
+        urlList.querySelectorAll('.bookmark-folder-header').forEach(h => {
+          if (h !== nearestHeader) {
+            h.classList.remove('drag-over', 'drag-invalid');
+          }
+        });
+
+        try {
+          const dragData = JSON.parse(e.dataTransfer.getData('text/plain'));
+          if (dragData.currentFolder === nearestHeader.dataset.folderName) {
+            nearestHeader.classList.add('drag-invalid');
+            nearestHeader.classList.remove('drag-over');
+          } else {
+            nearestHeader.classList.add('drag-over');
+            nearestHeader.classList.remove('drag-invalid');
+          }
+        } catch (err) {
+          nearestHeader.classList.add('drag-over');
+        }
+      }
+    };
+
+    urlList._dragleaveHandler = (e) => {
+      if (e.target !== urlList && !e.target.classList.contains('url-list-spacer')) {
+        return;
+      }
+      // Only clear if leaving the container entirely
+      if (!urlList.contains(e.relatedTarget)) {
+        urlList.querySelectorAll('.bookmark-folder-header').forEach(h => {
+          h.classList.remove('drag-over', 'drag-invalid');
+        });
+      }
+    };
+
+    urlList._dropHandler = (e) => {
+      // Only handle if the direct target is the urlList or spacer
+      if (e.target !== urlList && !e.target.classList.contains('url-list-spacer')) {
+        return;
+      }
+
+      e.preventDefault();
+
+      // Find nearest folder
+      const nearestHeader = findNearestFolder(e.clientY);
+      if (!nearestHeader) return;
+
+      // Clear highlights
+      urlList.querySelectorAll('.bookmark-folder-header').forEach(h => {
+        h.classList.remove('drag-over', 'drag-invalid');
+      });
+
+      // Get dragged bookmark data
+      const dragData = JSON.parse(e.dataTransfer.getData('text/plain'));
+      const targetFolderName = nearestHeader.dataset.folderName;
+      const targetFolderId = nearestHeader.dataset.folderId;
+
+      // Don't move if dropping on same folder
+      if (dragData.currentFolder === targetFolderName) {
+        return;
+      }
+
+      // Move the bookmark
+      chrome.bookmarks.move(dragData.bookmarkId, {
+        parentId: targetFolderId
+      });
+    };
+
+    urlList.addEventListener('dragover', urlList._dragoverHandler);
+    urlList.addEventListener('dragleave', urlList._dragleaveHandler);
+    urlList.addEventListener('drop', urlList._dropHandler);
   }
 
   // Render pagination controls
@@ -2763,6 +2884,10 @@ class BulletHistory {
       });
     }
 
+    // Container for title and URL
+    const urlTextContainer = document.createElement('div');
+    urlTextContainer.className = 'url-text-container';
+
     const urlLink = document.createElement('a');
     urlLink.href = urlData.url;
 
@@ -2775,6 +2900,11 @@ class BulletHistory {
     } else {
       urlLink.textContent = displayText;
     }
+
+    // Add URL display (shown on hover)
+    const urlDisplay = document.createElement('span');
+    urlDisplay.className = 'url-display';
+    urlDisplay.textContent = urlData.url;
 
     // For active tabs, switch to the tab instead of opening a new one
     if (this.expandedViewType === 'active' && urlData.tabId) {
@@ -2804,24 +2934,25 @@ class BulletHistory {
     timestamp.className = 'url-timestamp';
     const lastVisitDate = new Date(urlData.lastVisit);
 
-    // Format as HH:MM:SS
-    const hours = String(lastVisitDate.getHours()).padStart(2, '0');
+    // Format as 12-hour time (e.g., 6:49pm)
+    const hours24 = lastVisitDate.getHours();
+    const hours12 = hours24 % 12 || 12;
     const minutes = String(lastVisitDate.getMinutes()).padStart(2, '0');
-    const seconds = String(lastVisitDate.getSeconds()).padStart(2, '0');
-    const timeText = `${hours}:${minutes}:${seconds}`;
+    const ampm = hours24 < 12 ? 'am' : 'pm';
+    const timeText = `${hours12}:${minutes}${ampm}`;
 
     timestamp.textContent = timeText;
     timestamp.title = lastVisitDate.toLocaleString();
 
+    urlTextContainer.appendChild(urlLink);
+    urlTextContainer.appendChild(urlDisplay);
+
     rightDiv.appendChild(favicon);
-    rightDiv.appendChild(urlLink);
+    rightDiv.appendChild(urlTextContainer);
     rightDiv.appendChild(timestamp);
 
     urlItem.appendChild(leftDiv);
     urlItem.appendChild(rightDiv);
-
-    // Add hover preview functionality to the URL link only
-    this.attachUrlPreview(urlLink, urlData);
 
     return urlItem;
   }
@@ -5087,6 +5218,10 @@ class BulletHistory {
     favicon.width = 16;
     favicon.height = 16;
 
+    // Container for title and URL
+    const urlTextContainer = document.createElement('div');
+    urlTextContainer.className = 'url-text-container';
+
     // Create clickable link
     const urlLink = document.createElement('a');
     urlLink.href = tabData.url;
@@ -5100,21 +5235,19 @@ class BulletHistory {
       urlLink.textContent = tabData.title || tabData.url;
     }
 
+    // Add URL display (shown on hover)
+    const urlDisplay = document.createElement('span');
+    urlDisplay.className = 'url-display';
+    urlDisplay.textContent = tabData.url;
+
+    urlTextContainer.appendChild(urlLink);
+    urlTextContainer.appendChild(urlDisplay);
+
     rightDiv.appendChild(favicon);
-    rightDiv.appendChild(urlLink);
+    rightDiv.appendChild(urlTextContainer);
 
     item.appendChild(leftDiv);
     item.appendChild(rightDiv);
-
-    // Add hover preview to the URL link
-    // Create urlData object compatible with attachUrlPreview
-    const urlData = {
-      url: tabData.url,
-      title: tabData.title,
-      visitCount: 1, // We don't track visit count for closed tabs
-      lastVisit: tabData.closedAt // Use closed time as "last visit"
-    };
-    this.attachUrlPreview(urlLink, urlData);
 
     return item;
   }
