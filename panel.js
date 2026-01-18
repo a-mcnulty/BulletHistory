@@ -59,18 +59,13 @@ class BulletHistory {
     this.sortMode = 'recent'; // 'recent', 'frequency', or 'alphabetical'
     this.searchFilter = ''; // Search filter text
     this.virtualGridInitialized = false; // Track if listeners are set up
-    this.itemsPerPage = 100; // Items per page
-    // Track pagination per view type
-    this.viewPagination = {
-      full: 1,
-      recent: 1,
-      bookmarks: 1,
-      frequent: 1,
-      domain: 1,
-      cell: 1,
-      active: 1,
-      closed: 1
-    };
+    // Virtual scrolling for URL list
+    this.urlListRowHeight = 32; // Estimated height per item row
+    this.urlListHeaderHeight = 28; // Height for group headers
+    this.urlListBuffer = 5; // Extra items to render above/below viewport
+    this.virtualRows = []; // Flat list of rows (items + headers)
+    this.filteredUrlsCache = []; // Cache of filtered URLs
+    this.urlListScrollHandler = null; // Scroll handler reference
 
     await this.loadColors();
     await this.loadFaviconCache();
@@ -1989,7 +1984,7 @@ class BulletHistory {
       allUrls.sort((a, b) => b.lastVisit - a.lastVisit);
     }
 
-    // Store URLs and render with pagination
+    // Store URLs and render with virtual scrolling
     this.expandedUrls = allUrls;
     this.renderUrlList();
 
@@ -2067,7 +2062,7 @@ class BulletHistory {
     // Sort by most recent first
     allUrls.sort((a, b) => b.lastVisit - a.lastVisit);
 
-    // Store URLs and render with pagination
+    // Store URLs and render with virtual scrolling
     this.expandedUrls = allUrls;
     this.renderUrlList();
 
@@ -2178,7 +2173,7 @@ class BulletHistory {
       date: date
     }));
 
-    // Store URLs and render with pagination
+    // Store URLs and render with virtual scrolling
     this.expandedUrls = urlsWithContext;
     this.renderUrlList();
 
@@ -2209,7 +2204,7 @@ class BulletHistory {
     }
   }
 
-  // Render URL list with pagination
+  // Render URL list with virtual scrolling
   renderUrlList() {
     const urlList = document.getElementById('urlList');
     const expandedView = document.getElementById('expandedView');
@@ -2226,6 +2221,7 @@ class BulletHistory {
         return domain.includes(filterLower) || url.includes(filterLower) || title.includes(filterLower);
       });
     }
+    this.filteredUrlsCache = filteredUrls;
 
     // Update title with filtered count
     if (this.searchFilter && filteredUrls.length !== this.expandedUrls.length) {
@@ -2236,22 +2232,64 @@ class BulletHistory {
       expandedTitle.textContent = `${viewName} (${this.expandedUrls.length} total)`;
     }
 
-    // Get current page for this view type
-    const currentPage = this.viewPagination[this.expandedViewType] || 1;
+    // Build flat list of virtual rows (headers + items)
+    this.buildVirtualRows(filteredUrls);
 
-    // Calculate pagination
-    const totalItems = filteredUrls.length;
-    const totalPages = Math.ceil(totalItems / this.itemsPerPage);
-    const startIndex = (currentPage - 1) * this.itemsPerPage;
-    const endIndex = Math.min(startIndex + this.itemsPerPage, totalItems);
+    // Calculate total height
+    const totalHeight = this.virtualRows.reduce((sum, row) => {
+      return sum + (row.type === 'header' ? this.urlListHeaderHeight : this.urlListRowHeight);
+    }, 0);
 
     // Clear list and set view-specific class
     urlList.innerHTML = '';
     urlList.classList.toggle('bookmarks-view', this.expandedViewType === 'bookmarks');
 
-    // Render items for current page with grouping headers
+    // Create virtual scroll container
+    const virtualContainer = document.createElement('div');
+    virtualContainer.className = 'virtual-scroll-container';
+    virtualContainer.style.height = `${totalHeight}px`;
+    virtualContainer.style.position = 'relative';
+
+    // Create content container for visible items
+    const contentContainer = document.createElement('div');
+    contentContainer.className = 'virtual-scroll-content';
+    contentContainer.style.position = 'absolute';
+    contentContainer.style.left = '0';
+    contentContainer.style.right = '0';
+    virtualContainer.appendChild(contentContainer);
+
+    urlList.appendChild(virtualContainer);
+
+    // Remove old scroll handler if exists
+    if (this.urlListScrollHandler) {
+      expandedView.removeEventListener('scroll', this.urlListScrollHandler);
+    }
+
+    // Create new scroll handler
+    this.urlListScrollHandler = () => {
+      this.renderVisibleUrlItems(expandedView, contentContainer);
+    };
+
+    // Add scroll listener
+    expandedView.addEventListener('scroll', this.urlListScrollHandler);
+
+    // For bookmarks view: set up container-level drag handlers
+    if (this.expandedViewType === 'bookmarks') {
+      this.setupUrlListDropTarget(virtualContainer);
+    }
+
+    // Initial render of visible items
+    requestAnimationFrame(() => {
+      this.renderVisibleUrlItems(expandedView, contentContainer);
+    });
+  }
+
+  // Build flat list of virtual rows from filtered URLs
+  buildVirtualRows(filteredUrls) {
+    this.virtualRows = [];
     let currentGroup = null;
-    for (let i = startIndex; i < endIndex; i++) {
+
+    for (let i = 0; i < filteredUrls.length; i++) {
       const urlData = filteredUrls[i];
 
       // Determine group based on view type and sort mode
@@ -2259,85 +2297,125 @@ class BulletHistory {
       let groupLabel = null;
 
       if (this.expandedViewType === 'bookmarks') {
-        // Bookmarks: Always group by folder
         groupKey = urlData.folder || 'Root';
         groupLabel = groupKey;
       } else if (this.expandedViewType === 'active') {
-        // Active tabs: Group by window
         if (urlData.windowId) {
           groupKey = `window-${urlData.windowId}`;
           groupLabel = `Window ${urlData.windowId}`;
         }
       } else if (this.expandedViewType === 'closed' || this.expandedViewType === 'full' || this.expandedViewType === 'recent') {
-        // All and Closed: Only show date headers in "Most Recent" mode
         if (this.sortMode === 'recent') {
           if (this.expandedViewType === 'closed') {
-            // Group by date closed
             groupKey = this.formatDate(new Date(urlData.closedAt));
             groupLabel = this.formatDateHeader(groupKey);
           } else {
-            // Group by date visited
             groupKey = this.formatDate(new Date(urlData.lastVisit));
             groupLabel = this.formatDateHeader(groupKey);
           }
         }
-        // For 'popular' and 'alphabetical' modes, don't show any headers
       }
 
-      // Add group header if group changed
+      // Add header row if group changed
       if (groupKey && groupKey !== currentGroup) {
         currentGroup = groupKey;
+        this.virtualRows.push({
+          type: 'header',
+          groupKey,
+          groupLabel,
+          folderId: urlData.folderId // For bookmarks
+        });
+      }
+
+      // Add item row
+      this.virtualRows.push({
+        type: 'item',
+        index: i,
+        data: urlData,
+        groupKey
+      });
+    }
+  }
+
+  // Render only visible items based on scroll position
+  renderVisibleUrlItems(scrollContainer, contentContainer) {
+    const scrollTop = scrollContainer.scrollTop;
+    const viewportHeight = scrollContainer.clientHeight;
+
+    // Find visible range
+    let currentY = 0;
+    let startIndex = -1;
+    let endIndex = -1;
+    let startY = 0;
+
+    for (let i = 0; i < this.virtualRows.length; i++) {
+      const row = this.virtualRows[i];
+      const rowHeight = row.type === 'header' ? this.urlListHeaderHeight : this.urlListRowHeight;
+
+      // Check if row is in visible range (with buffer)
+      const rowTop = currentY;
+      const rowBottom = currentY + rowHeight;
+
+      if (rowBottom >= scrollTop - (this.urlListBuffer * this.urlListRowHeight) && startIndex === -1) {
+        startIndex = i;
+        startY = rowTop;
+      }
+
+      if (rowTop <= scrollTop + viewportHeight + (this.urlListBuffer * this.urlListRowHeight)) {
+        endIndex = i;
+      }
+
+      currentY += rowHeight;
+    }
+
+    if (startIndex === -1) startIndex = 0;
+    if (endIndex === -1) endIndex = this.virtualRows.length - 1;
+
+    // Position content container
+    contentContainer.style.top = `${startY}px`;
+
+    // Clear and render visible items
+    contentContainer.innerHTML = '';
+
+    for (let i = startIndex; i <= endIndex && i < this.virtualRows.length; i++) {
+      const row = this.virtualRows[i];
+
+      if (row.type === 'header') {
         const groupHeader = document.createElement('div');
         groupHeader.className = 'date-group-header';
-        groupHeader.textContent = groupLabel;
+        groupHeader.textContent = row.groupLabel;
+        groupHeader.style.height = `${this.urlListHeaderHeight}px`;
+        groupHeader.style.boxSizing = 'border-box';
 
         // For bookmarks view: make folder headers drop targets
         if (this.expandedViewType === 'bookmarks') {
-          groupHeader.dataset.folderName = groupKey;
-          groupHeader.dataset.folderId = urlData.folderId;
+          groupHeader.dataset.folderName = row.groupKey;
+          groupHeader.dataset.folderId = row.folderId;
           groupHeader.classList.add('bookmark-folder-header');
           this.setupFolderDropTarget(groupHeader);
         }
 
-        urlList.appendChild(groupHeader);
+        contentContainer.appendChild(groupHeader);
+      } else {
+        const urlData = row.data;
+        const urlItem = this.createUrlItem(urlData, urlData.domain, urlData.date);
+        urlItem.style.height = `${this.urlListRowHeight}px`;
+        urlItem.style.boxSizing = 'border-box';
+
+        // For bookmarks view: make items draggable and droppable
+        if (this.expandedViewType === 'bookmarks') {
+          urlItem.draggable = true;
+          urlItem.dataset.bookmarkId = urlData.id;
+          urlItem.dataset.currentFolder = urlData.folder;
+          urlItem.dataset.folderId = urlData.folderId;
+          urlItem.dataset.folderName = urlData.folder;
+          this.setupBookmarkDrag(urlItem, urlData);
+          this.setupUrlItemDropTarget(urlItem);
+        }
+
+        contentContainer.appendChild(urlItem);
       }
-
-      const urlItem = this.createUrlItem(urlData, urlData.domain, urlData.date);
-
-      // For bookmarks view: make items draggable and droppable
-      if (this.expandedViewType === 'bookmarks') {
-        urlItem.draggable = true;
-        urlItem.dataset.bookmarkId = urlData.id;
-        urlItem.dataset.currentFolder = urlData.folder;
-        urlItem.dataset.folderId = urlData.folderId;
-        urlItem.dataset.folderName = urlData.folder;
-        this.setupBookmarkDrag(urlItem, urlData);
-        this.setupUrlItemDropTarget(urlItem);
-      }
-
-      urlList.appendChild(urlItem);
     }
-
-    // For bookmarks view: set up container-level drag handlers to catch drops in gaps
-    if (this.expandedViewType === 'bookmarks') {
-      this.setupUrlListDropTarget(urlList);
-    }
-
-    // Add flexible spacer to fill remaining space in the fixed-height expanded view
-    const spacer = document.createElement('div');
-    spacer.className = 'url-list-spacer';
-    urlList.appendChild(spacer);
-
-    // Update or create pagination controls
-    this.renderPaginationControls(totalPages, totalItems, currentPage);
-
-    // Force recalculation of scroll area to handle zoom/text wrapping
-    // This ensures the browser recognizes the full content height
-    requestAnimationFrame(() => {
-      expandedView.style.overflow = 'hidden';
-      expandedView.offsetHeight; // Force reflow
-      expandedView.style.overflow = 'auto';
-    });
   }
 
   // Setup drag handlers for bookmark items
@@ -2636,65 +2714,6 @@ class BulletHistory {
     urlList.addEventListener('dragover', urlList._dragoverHandler);
     urlList.addEventListener('dragleave', urlList._dragleaveHandler);
     urlList.addEventListener('drop', urlList._dropHandler);
-  }
-
-  // Render pagination controls
-  renderPaginationControls(totalPages, totalItems, currentPage) {
-    const expandedView = document.getElementById('expandedView');
-    const urlList = document.getElementById('urlList');
-
-    // Remove existing pagination if present
-    let pagination = document.getElementById('pagination');
-    if (pagination) {
-      pagination.remove();
-    }
-
-    // Only show pagination if there's more than one page
-    if (totalPages <= 1) return;
-
-    // Create pagination container
-    pagination = document.createElement('div');
-    pagination.id = 'pagination';
-    pagination.className = 'pagination';
-
-    // Previous button
-    const prevBtn = document.createElement('button');
-    prevBtn.className = 'pagination-btn';
-    prevBtn.textContent = '‹ Previous';
-    prevBtn.disabled = currentPage === 1;
-    prevBtn.addEventListener('click', () => {
-      if (currentPage > 1) {
-        this.viewPagination[this.expandedViewType]--;
-        this.renderUrlList();
-        expandedView.scrollTop = 0;
-      }
-    });
-
-    // Page info
-    const pageInfo = document.createElement('span');
-    pageInfo.className = 'pagination-info';
-    const start = (currentPage - 1) * this.itemsPerPage + 1;
-    const end = Math.min(currentPage * this.itemsPerPage, totalItems);
-    pageInfo.textContent = `${start}-${end} of ${totalItems}`;
-
-    // Next button
-    const nextBtn = document.createElement('button');
-    nextBtn.className = 'pagination-btn';
-    nextBtn.textContent = 'Next ›';
-    nextBtn.disabled = currentPage === totalPages;
-    nextBtn.addEventListener('click', () => {
-      if (currentPage < totalPages) {
-        this.viewPagination[this.expandedViewType]++;
-        this.renderUrlList();
-        expandedView.scrollTop = 0;
-      }
-    });
-
-    pagination.appendChild(prevBtn);
-    pagination.appendChild(pageInfo);
-    pagination.appendChild(nextBtn);
-
-    urlList.appendChild(pagination);
   }
 
   // Format duration in human-readable format (4m, 2h, 3d)
