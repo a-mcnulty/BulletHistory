@@ -1,0 +1,15 @@
+# Private keys - NEVER commit these
+*.pem
+
+# Extension packages
+*.zip
+*.crx
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
