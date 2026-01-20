@@ -65,7 +65,10 @@ class BulletHistory {
     this.urlListBuffer = 5; // Extra items to render above/below viewport
     this.virtualRows = []; // Flat list of rows (items + headers)
     this.filteredUrlsCache = []; // Cache of filtered URLs
+    this.currentFilteredUrls = []; // Current filtered URLs for rebuild
     this.urlListScrollHandler = null; // Scroll handler reference
+    this.collapsedGroups = new Set(); // Track collapsed groups in expanded views
+    this.lastExpandedViewType = null; // Track last view type to clear collapsed groups on change
 
     await this.loadColors();
     await this.loadFaviconCache();
@@ -2210,6 +2213,12 @@ class BulletHistory {
     const expandedView = document.getElementById('expandedView');
     const expandedTitle = document.getElementById('expandedTitle');
 
+    // Clear collapsed groups when view type changes
+    if (this.lastExpandedViewType !== this.expandedViewType) {
+      this.collapsedGroups.clear();
+      this.lastExpandedViewType = this.expandedViewType;
+    }
+
     // Filter URLs based on search filter
     let filteredUrls = this.expandedUrls;
     if (this.searchFilter) {
@@ -2231,6 +2240,9 @@ class BulletHistory {
       const viewName = this.getViewName();
       expandedTitle.textContent = `${viewName} (${this.expandedUrls.length} total)`;
     }
+
+    // Store filtered URLs for later use (e.g., when toggling folder collapse)
+    this.currentFilteredUrls = filteredUrls;
 
     // Build flat list of virtual rows (headers + items)
     this.buildVirtualRows(filteredUrls);
@@ -2289,6 +2301,33 @@ class BulletHistory {
     this.virtualRows = [];
     let currentGroup = null;
 
+    // Helper function to get group key for a URL item
+    const getGroupKey = (urlData) => {
+      if (this.expandedViewType === 'bookmarks') {
+        return urlData.folder || 'Root';
+      } else if (this.expandedViewType === 'active') {
+        return urlData.windowId ? `window-${urlData.windowId}` : null;
+      } else if (this.expandedViewType === 'closed' || this.expandedViewType === 'full' || this.expandedViewType === 'recent') {
+        if (this.sortMode === 'recent') {
+          if (this.expandedViewType === 'closed') {
+            return this.formatDate(new Date(urlData.closedAt));
+          } else {
+            return this.formatDate(new Date(urlData.lastVisit));
+          }
+        }
+      }
+      return null;
+    };
+
+    // Count items per group for all views with headers
+    const groupCounts = {};
+    filteredUrls.forEach(urlData => {
+      const key = getGroupKey(urlData);
+      if (key) {
+        groupCounts[key] = (groupCounts[key] || 0) + 1;
+      }
+    });
+
     for (let i = 0; i < filteredUrls.length; i++) {
       const urlData = filteredUrls[i];
 
@@ -2319,12 +2358,20 @@ class BulletHistory {
       // Add header row if group changed
       if (groupKey && groupKey !== currentGroup) {
         currentGroup = groupKey;
+        const isCollapsed = this.collapsedGroups.has(groupKey);
         this.virtualRows.push({
           type: 'header',
           groupKey,
           groupLabel,
-          folderId: urlData.folderId // For bookmarks
+          folderId: urlData.folderId,
+          isCollapsed,
+          itemCount: groupCounts[groupKey] || 0
         });
+      }
+
+      // Skip items if group is collapsed
+      if (groupKey && this.collapsedGroups.has(currentGroup)) {
+        continue;
       }
 
       // Add item row
@@ -2334,6 +2381,26 @@ class BulletHistory {
         data: urlData,
         groupKey
       });
+    }
+  }
+
+  // Update virtual scroll container height after collapse/expand
+  updateVirtualScrollHeight(animate = false) {
+    const totalHeight = this.virtualRows.reduce((sum, row) => {
+      return sum + (row.type === 'header' ? this.urlListHeaderHeight : this.urlListRowHeight);
+    }, 0);
+
+    const expandedView = document.getElementById('expandedView');
+    const virtualContainer = expandedView?.querySelector('.virtual-scroll-container');
+    if (virtualContainer) {
+      if (animate) {
+        virtualContainer.classList.add('animating');
+        // Remove animation class after transition completes
+        setTimeout(() => {
+          virtualContainer.classList.remove('animating');
+        }, 200);
+      }
+      virtualContainer.style.height = `${totalHeight}px`;
     }
   }
 
@@ -2382,12 +2449,65 @@ class BulletHistory {
 
       if (row.type === 'header') {
         const groupHeader = document.createElement('div');
-        groupHeader.className = 'date-group-header';
-        groupHeader.textContent = row.groupLabel;
+        groupHeader.className = 'date-group-header collapsible-header';
         groupHeader.style.height = `${this.urlListHeaderHeight}px`;
         groupHeader.style.boxSizing = 'border-box';
 
-        // For bookmarks view: make folder headers drop targets
+        // Add collapsed class if group is collapsed
+        if (row.isCollapsed) {
+          groupHeader.classList.add('collapsed');
+        }
+
+        // Create chevron icon
+        const chevron = document.createElement('span');
+        chevron.className = 'group-chevron';
+        chevron.innerHTML = '&#9662;'; // Down-pointing triangle
+        groupHeader.appendChild(chevron);
+
+        // Add group name
+        const groupName = document.createElement('span');
+        groupName.className = 'group-name';
+        groupName.textContent = row.groupLabel;
+        groupHeader.appendChild(groupName);
+
+        // Add item count
+        const itemCount = document.createElement('span');
+        itemCount.className = 'group-item-count';
+        itemCount.textContent = `(${row.itemCount})`;
+        groupHeader.appendChild(itemCount);
+
+        // Add click handler to toggle collapsed state
+        groupHeader.addEventListener('click', (e) => {
+          // Don't toggle if clicking during drag
+          if (e.defaultPrevented) return;
+
+          const groupKey = row.groupKey;
+          const isExpanding = this.collapsedGroups.has(groupKey);
+
+          // Immediate visual feedback - toggle collapsed class on clicked header
+          groupHeader.classList.toggle('collapsed', !isExpanding);
+
+          // Update state
+          if (isExpanding) {
+            this.collapsedGroups.delete(groupKey);
+          } else {
+            this.collapsedGroups.add(groupKey);
+          }
+
+          // Get containers
+          const expandedView = document.getElementById('expandedView');
+          const virtualContainer = expandedView.querySelector('.virtual-scroll-container');
+          const contentContainer = virtualContainer.querySelector('.virtual-scroll-content');
+
+          // Rebuild virtual rows and update height with animation
+          this.buildVirtualRows(this.currentFilteredUrls);
+          this.updateVirtualScrollHeight(true); // true = animate
+
+          // Re-render visible items
+          this.renderVisibleUrlItems(expandedView, contentContainer);
+        });
+
+        // For bookmarks view: also make folder headers drop targets
         if (this.expandedViewType === 'bookmarks') {
           groupHeader.dataset.folderName = row.groupKey;
           groupHeader.dataset.folderId = row.folderId;
