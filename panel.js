@@ -60,7 +60,7 @@ class BulletHistory {
     this.searchFilter = ''; // Search filter text
     this.virtualGridInitialized = false; // Track if listeners are set up
     // Virtual scrolling for URL list
-    this.urlListRowHeight = 32; // Estimated height per item row
+    this.urlListRowHeight = 28; // Estimated height per item row
     this.urlListHeaderHeight = 28; // Height for group headers
     this.urlListBuffer = 5; // Extra items to render above/below viewport
     this.virtualRows = []; // Flat list of rows (items + headers)
@@ -2307,6 +2307,9 @@ class BulletHistory {
         return urlData.folder || 'Root';
       } else if (this.expandedViewType === 'active') {
         return urlData.windowId ? `window-${urlData.windowId}` : null;
+      } else if (this.expandedViewType === 'domain') {
+        // Domain view always groups by date
+        return this.formatDate(new Date(urlData.lastVisit));
       } else if (this.expandedViewType === 'closed' || this.expandedViewType === 'full' || this.expandedViewType === 'recent') {
         if (this.sortMode === 'recent') {
           if (this.expandedViewType === 'closed') {
@@ -2343,6 +2346,10 @@ class BulletHistory {
           groupKey = `window-${urlData.windowId}`;
           groupLabel = `Window ${urlData.windowId}`;
         }
+      } else if (this.expandedViewType === 'domain') {
+        // Domain view always groups by date
+        groupKey = this.formatDate(new Date(urlData.lastVisit));
+        groupLabel = this.formatDateHeader(groupKey);
       } else if (this.expandedViewType === 'closed' || this.expandedViewType === 'full' || this.expandedViewType === 'recent') {
         if (this.sortMode === 'recent') {
           if (this.expandedViewType === 'closed') {
@@ -2859,7 +2866,7 @@ class BulletHistory {
     const urlItem = document.createElement('div');
     urlItem.className = 'url-item';
 
-    // Left side: count + actions
+    // Left side: count + timestamp
     const leftDiv = document.createElement('div');
     leftDiv.className = 'url-item-left';
 
@@ -2873,6 +2880,25 @@ class BulletHistory {
       countSpan.textContent = `${urlData.visitCount}×`;
     }
 
+    // Create timestamp
+    const timestamp = document.createElement('span');
+    timestamp.className = 'url-timestamp';
+    const lastVisitDate = new Date(urlData.lastVisit);
+
+    // Format as 12-hour time (e.g., 6:49pm)
+    const hours24 = lastVisitDate.getHours();
+    const hours12 = hours24 % 12 || 12;
+    const minutes = String(lastVisitDate.getMinutes()).padStart(2, '0');
+    const ampm = hours24 < 12 ? 'am' : 'pm';
+    const timeText = `${hours12}:${minutes}${ampm}`;
+
+    timestamp.textContent = timeText;
+    timestamp.title = lastVisitDate.toLocaleString();
+
+    leftDiv.appendChild(countSpan);
+    leftDiv.appendChild(timestamp);
+
+    // Actions (shown on hover, on the right side)
     const actionsDiv = document.createElement('div');
     actionsDiv.className = 'url-item-actions';
 
@@ -2880,7 +2906,7 @@ class BulletHistory {
     if (this.expandedViewType === 'bookmarks') {
       const manageBtn = document.createElement('button');
       manageBtn.className = 'icon-btn manage';
-      manageBtn.textContent = '⚙️';
+      manageBtn.textContent = '⚙️ Manage';
       manageBtn.title = 'Manage bookmark in Chrome';
       manageBtn.addEventListener('click', () => {
         // Open Chrome's bookmark manager to the specific folder
@@ -2893,7 +2919,7 @@ class BulletHistory {
       // For active tabs view: Show close tab button
       const closeBtn = document.createElement('button');
       closeBtn.className = 'icon-btn delete';
-      closeBtn.textContent = '✕';
+      closeBtn.textContent = '✕ Close';
       closeBtn.title = 'Close tab';
       closeBtn.addEventListener('click', async (e) => {
         // Find the parent url-item element
@@ -2917,7 +2943,7 @@ class BulletHistory {
       // For other views: Show delete button
       const deleteBtn = document.createElement('button');
       deleteBtn.className = 'icon-btn delete';
-      deleteBtn.textContent = '🗑️';
+      deleteBtn.textContent = '🗑️ Delete';
       deleteBtn.title = 'Delete from history';
       deleteBtn.addEventListener('click', (e) => {
         // Find the parent url-item element
@@ -2930,7 +2956,7 @@ class BulletHistory {
 
     const bookmarkBtn = document.createElement('button');
     bookmarkBtn.className = 'icon-btn bookmark';
-    bookmarkBtn.textContent = '⭐';
+    bookmarkBtn.textContent = '⭐ Favorite';
     bookmarkBtn.title = 'Toggle bookmark';
     bookmarkBtn.addEventListener('click', () => this.toggleBookmark(urlData.url, urlData.title, bookmarkBtn));
 
@@ -2938,9 +2964,6 @@ class BulletHistory {
     this.checkBookmarkStatus(urlData.url, bookmarkBtn);
 
     actionsDiv.appendChild(bookmarkBtn);
-
-    leftDiv.appendChild(countSpan);
-    leftDiv.appendChild(actionsDiv);
 
     // Right side: Favicon + URL as clickable link
     const rightDiv = document.createElement('div');
@@ -3029,21 +3052,61 @@ class BulletHistory {
 
     const urlLink = document.createElement('a');
     urlLink.href = urlData.url;
+    urlLink.className = 'url-title';
 
     // Show title if available, otherwise show URL
     const displayText = urlData.title || urlData.url;
+    urlLink.textContent = displayText;
 
-    // Truncate title/URL longer than 400 characters
-    if (displayText.length > 400) {
-      urlLink.textContent = displayText.substring(0, 400) + '...';
-    } else {
-      urlLink.textContent = displayText;
+    // Add hover display (shows full title + URL)
+    const urlDisplay = document.createElement('div');
+    urlDisplay.className = 'url-display';
+
+    // Add full title if it differs from what's shown (truncated via CSS)
+    if (urlData.title && urlData.title.length > 0) {
+      const fullTitle = document.createElement('div');
+      fullTitle.className = 'url-display-title';
+      fullTitle.textContent = urlData.title;
+      urlDisplay.appendChild(fullTitle);
     }
 
-    // Add URL display (shown on hover)
-    const urlDisplay = document.createElement('span');
-    urlDisplay.className = 'url-display';
-    urlDisplay.textContent = urlData.url;
+    // Add metadata (visits and last visited)
+    const metaDiv = document.createElement('div');
+    metaDiv.className = 'url-display-meta';
+
+    // Visit count
+    const visitsSpan = document.createElement('span');
+    visitsSpan.className = 'url-display-meta-item';
+    visitsSpan.innerHTML = `<span class="meta-label">Visits:</span> ${urlData.visitCount || 1}`;
+    metaDiv.appendChild(visitsSpan);
+
+    // Last visited time
+    if (urlData.lastVisit) {
+      const lastVisitSpan = document.createElement('span');
+      lastVisitSpan.className = 'url-display-meta-item';
+      const lastVisitDate = new Date(urlData.lastVisit);
+      const formattedDate = lastVisitDate.toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      });
+      lastVisitSpan.innerHTML = `<span class="meta-label">Last visited:</span> ${formattedDate}`;
+      metaDiv.appendChild(lastVisitSpan);
+    }
+
+    urlDisplay.appendChild(metaDiv);
+
+    // Add actions inside the hover display
+    urlDisplay.appendChild(actionsDiv);
+
+    // Add URL at the bottom
+    const fullUrl = document.createElement('div');
+    fullUrl.className = 'url-display-url';
+    fullUrl.textContent = urlData.url;
+    urlDisplay.appendChild(fullUrl);
 
     // For active tabs, switch to the tab instead of opening a new one
     if (this.expandedViewType === 'active' && urlData.tabId) {
@@ -3068,27 +3131,11 @@ class BulletHistory {
       urlLink.rel = 'noopener noreferrer';
     }
 
-    // Add timestamp
-    const timestamp = document.createElement('span');
-    timestamp.className = 'url-timestamp';
-    const lastVisitDate = new Date(urlData.lastVisit);
-
-    // Format as 12-hour time (e.g., 6:49pm)
-    const hours24 = lastVisitDate.getHours();
-    const hours12 = hours24 % 12 || 12;
-    const minutes = String(lastVisitDate.getMinutes()).padStart(2, '0');
-    const ampm = hours24 < 12 ? 'am' : 'pm';
-    const timeText = `${hours12}:${minutes}${ampm}`;
-
-    timestamp.textContent = timeText;
-    timestamp.title = lastVisitDate.toLocaleString();
-
     urlTextContainer.appendChild(urlLink);
     urlTextContainer.appendChild(urlDisplay);
 
     rightDiv.appendChild(favicon);
     rightDiv.appendChild(urlTextContainer);
-    rightDiv.appendChild(timestamp);
 
     urlItem.appendChild(leftDiv);
     urlItem.appendChild(rightDiv);
@@ -3891,6 +3938,7 @@ class BulletHistory {
       if (results && results.length > 0) {
         bookmarkBtn.classList.add('saved');
         bookmarkBtn.dataset.bookmarkId = results[0].id;
+        bookmarkBtn.textContent = '⭐ Unfavorite';
       }
     });
   }
@@ -3904,6 +3952,7 @@ class BulletHistory {
       chrome.bookmarks.remove(bookmarkId, () => {
         bookmarkBtn.classList.remove('saved');
         delete bookmarkBtn.dataset.bookmarkId;
+        bookmarkBtn.textContent = '⭐ Favorite';
       });
     } else {
       // Add bookmark
@@ -3913,6 +3962,7 @@ class BulletHistory {
       }, (bookmark) => {
         bookmarkBtn.classList.add('saved');
         bookmarkBtn.dataset.bookmarkId = bookmark.id;
+        bookmarkBtn.textContent = '⭐ Unfavorite';
       });
     }
   }
@@ -5365,19 +5415,29 @@ class BulletHistory {
     const urlLink = document.createElement('a');
     urlLink.href = tabData.url;
     urlLink.target = '_blank';
+    urlLink.className = 'url-title';
 
-    // Truncate URLs longer than 400 characters
-    if (tabData.url.length > 400) {
-      urlLink.textContent = tabData.title || tabData.url.substring(0, 400) + '...';
-      urlLink.title = tabData.url;
-    } else {
-      urlLink.textContent = tabData.title || tabData.url;
+    // Show title if available, otherwise show URL
+    const displayText = tabData.title || tabData.url;
+    urlLink.textContent = displayText;
+
+    // Add hover display (shows full title + URL)
+    const urlDisplay = document.createElement('div');
+    urlDisplay.className = 'url-display';
+
+    // Add full title if available
+    if (tabData.title && tabData.title.length > 0) {
+      const fullTitle = document.createElement('div');
+      fullTitle.className = 'url-display-title';
+      fullTitle.textContent = tabData.title;
+      urlDisplay.appendChild(fullTitle);
     }
 
-    // Add URL display (shown on hover)
-    const urlDisplay = document.createElement('span');
-    urlDisplay.className = 'url-display';
-    urlDisplay.textContent = tabData.url;
+    // Add URL
+    const fullUrl = document.createElement('div');
+    fullUrl.className = 'url-display-url';
+    fullUrl.textContent = tabData.url;
+    urlDisplay.appendChild(fullUrl);
 
     urlTextContainer.appendChild(urlLink);
     urlTextContainer.appendChild(urlDisplay);

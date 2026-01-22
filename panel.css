@@ -784,9 +784,9 @@ body {
   display: flex;
   padding: 4px 8px;
   background: #fff;
-  margin: 4px 8px;
+  margin: 4px 0px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 12px;
   align-items: flex-start;
   transition: background 0.15s ease;
   position: relative;
@@ -800,20 +800,22 @@ body {
 .url-item-left {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-width: 80px;
+  gap: 6px;
   color: #999;
+  flex-shrink: 0;
 }
 
 .url-item-count {
   font-weight: 500;
-  min-width: 20px;
-  font-size: 11px;
+  min-width: 24px;
+  font-size: 12px;
+  text-align: right;
 }
 
 .url-item-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
+  margin-top: 6px;
 }
 
 .icon-btn {
@@ -883,8 +885,8 @@ body {
 
 .url-item-right {
   flex: 1;
+  min-width: 0;
   color: #555;
-  word-break: break-all;
   padding-left: 16px;
   font-size: 11px;
   line-height: 1.5;
@@ -906,23 +908,66 @@ body {
   position: relative;
 }
 
+.url-title {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .url-display {
-  color: #666;
-  font-size: 10px;
-  word-break: break-all;
   position: absolute;
   left: 0;
   right: 0;
   top: 100%;
   background: #fff;
-  padding: 6px 8px;
-  border-radius: 0 0 4px 4px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  padding: 8px 10px;
+  margin: 10px 0px;
+  border-radius: 0 0 6px 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
   z-index: 100;
   opacity: 0;
   pointer-events: none;
   transform: translateY(-4px);
   transition: opacity 0.15s ease, transform 0.15s ease;
+  max-width: 400px;
+}
+
+.url-display-title {
+  color: #333;
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 4px;
+  word-wrap: break-word;
+  line-height: 1.4;
+}
+
+.url-display-url {
+  color: #666;
+  font-size: 10px;
+  word-break: break-all;
+  line-height: 1.3;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #eee;
+}
+
+.url-display-meta {
+  display: flex;
+  gap: 16px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: #555;
+}
+
+.url-display-meta-item {
+  display: flex;
+  gap: 4px;
+}
+
+.meta-label {
+  color: #999;
+  font-weight: 500;
 }
 
 .url-item:hover .url-display {
@@ -943,11 +988,10 @@ body {
 }
 
 .url-timestamp {
-  flex-shrink: 0;
-  font-size: 10px;
+  font-size: 12px;
   color: #999;
-  margin-left: auto;
   white-space: nowrap;
+  min-width: 48px;
 }
 
 /* Selected cell highlight */
@@ -1664,7 +1708,6 @@ body {
 
 /* Drag and drop styles for bookmarks */
 .bookmarks-view .url-item {
-  margin: 0 8px;
   padding: 4px 8px;
   border-bottom: 1px solid #f0f0f0;
 }
