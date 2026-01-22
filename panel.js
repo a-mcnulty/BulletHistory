@@ -9,6 +9,7 @@ class BulletHistory {
     this.filteredMode = false; // Track if domains are filtered to expanded view
     this.originalSortedDomains = null; // Store full domain list when filtering
     this.faviconCache = {}; // Cached favicons from active tabs: { url: { favicon, timestamp } }
+    this.urlTimeCache = {}; // Cached URL time tracking data: { url: { activeSeconds, backgroundSeconds, totalSeconds } }
 
     // View mode: 'day' (default) or 'hour' - will be loaded from storage in init()
     this.viewMode = 'day';
@@ -2861,6 +2862,100 @@ class BulletHistory {
     }
   }
 
+  // djb2 hash function for URL time tracking (matches background.js)
+  hashUrl(url) {
+    let hash = 5381;
+    for (let i = 0; i < url.length; i++) {
+      hash = ((hash << 5) + hash) ^ url.charCodeAt(i);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
+  }
+
+  // Get cached time data for a URL (synchronous)
+  getCachedUrlTimeData(url) {
+    return this.urlTimeCache[url] || null;
+  }
+
+  // Load time tracking data for a URL (aggregates all days)
+  async loadUrlTimeData(url) {
+    // Return cached data if available
+    if (this.urlTimeCache[url] !== undefined) {
+      return this.urlTimeCache[url];
+    }
+
+    try {
+      const result = await chrome.storage.local.get(['urlTimeData']);
+      const urlTimeData = result.urlTimeData || {};
+      const urlHash = this.hashUrl(url);
+
+      let totalActive = 0;
+      let totalBackground = 0;
+
+      // Sum up all days for this URL
+      for (const key of Object.keys(urlTimeData)) {
+        if (key.startsWith(urlHash + ':')) {
+          const entry = urlTimeData[key];
+          totalActive += entry.a || 0;
+          totalBackground += entry.b || 0;
+        }
+      }
+
+      if (totalActive === 0 && totalBackground === 0) {
+        this.urlTimeCache[url] = null;
+        return null;
+      }
+
+      const timeData = {
+        activeSeconds: totalActive,
+        backgroundSeconds: totalBackground,
+        totalSeconds: totalActive + totalBackground
+      };
+
+      // Cache the result
+      this.urlTimeCache[url] = timeData;
+      return timeData;
+    } catch (e) {
+      console.warn('Failed to load URL time data:', e);
+      return null;
+    }
+  }
+
+  // Format time tracking for display (returns { display, tooltip })
+  formatTimeTracking(timeData) {
+    if (!timeData) return null;
+
+    const totalSeconds = timeData.totalSeconds;
+    const activeSeconds = timeData.activeSeconds;
+    const backgroundSeconds = timeData.backgroundSeconds;
+
+    // Format total time for display
+    let display;
+    if (totalSeconds >= 3600) {
+      display = `${Math.floor(totalSeconds / 3600)}h`;
+    } else if (totalSeconds >= 60) {
+      display = `${Math.floor(totalSeconds / 60)}m`;
+    } else {
+      display = `${totalSeconds}s`;
+    }
+
+    // Format detailed breakdown for tooltip
+    const formatTime = (seconds) => {
+      if (seconds >= 3600) {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        return m > 0 ? `${h}h ${m}m` : `${h}h`;
+      } else if (seconds >= 60) {
+        return `${Math.floor(seconds / 60)}m`;
+      } else {
+        return `${seconds}s`;
+      }
+    };
+
+    const tooltip = `Active: ${formatTime(activeSeconds)}, Background: ${formatTime(backgroundSeconds)}`;
+
+    return { display, tooltip };
+  }
+
   // Create a URL item element
   createUrlItem(urlData, domain, date) {
     const urlItem = document.createElement('div');
@@ -2880,6 +2975,31 @@ class BulletHistory {
       countSpan.textContent = `${urlData.visitCount}×`;
     }
 
+    // Create time tracking span
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'url-item-time';
+
+    // Use cached data immediately if available, otherwise load async
+    const cachedTimeData = this.getCachedUrlTimeData(urlData.url);
+    if (cachedTimeData !== null) {
+      const formatted = this.formatTimeTracking(cachedTimeData);
+      if (formatted) {
+        timeSpan.textContent = formatted.display;
+        timeSpan.title = formatted.tooltip;
+      }
+    }
+
+    // Always load to populate cache for future renders (if not already cached)
+    if (cachedTimeData === null && this.urlTimeCache[urlData.url] === undefined) {
+      this.loadUrlTimeData(urlData.url).then(timeData => {
+        const formatted = this.formatTimeTracking(timeData);
+        if (formatted) {
+          timeSpan.textContent = formatted.display;
+          timeSpan.title = formatted.tooltip;
+        }
+      });
+    }
+
     // Create timestamp
     const timestamp = document.createElement('span');
     timestamp.className = 'url-timestamp';
@@ -2897,6 +3017,7 @@ class BulletHistory {
 
     leftDiv.appendChild(countSpan);
     leftDiv.appendChild(timestamp);
+    leftDiv.appendChild(timeSpan);
 
     // Actions (shown on hover, on the right side)
     const actionsDiv = document.createElement('div');
@@ -3095,6 +3216,45 @@ class BulletHistory {
       });
       lastVisitSpan.innerHTML = `<span class="meta-label">Last visited:</span> ${formattedDate}`;
       metaDiv.appendChild(lastVisitSpan);
+    }
+
+    // Time tracking spans
+    const activeTimeSpan = document.createElement('span');
+    activeTimeSpan.className = 'url-display-meta-item url-time-meta';
+    metaDiv.appendChild(activeTimeSpan);
+
+    const bgTimeSpan = document.createElement('span');
+    bgTimeSpan.className = 'url-display-meta-item url-time-meta';
+    metaDiv.appendChild(bgTimeSpan);
+
+    // Helper to format time
+    const formatTimeDisplay = (seconds) => {
+      if (seconds >= 3600) {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        return m > 0 ? `${h}h ${m}m` : `${h}h`;
+      } else if (seconds >= 60) {
+        return `${Math.floor(seconds / 60)}m`;
+      } else {
+        return `${seconds}s`;
+      }
+    };
+
+    // Helper to populate time spans
+    const populateTimeSpans = (timeData) => {
+      if (timeData) {
+        activeTimeSpan.innerHTML = `<span class="meta-label">Active:</span> ${formatTimeDisplay(timeData.activeSeconds)}`;
+        bgTimeSpan.innerHTML = `<span class="meta-label">Background:</span> ${formatTimeDisplay(timeData.backgroundSeconds)}`;
+      }
+    };
+
+    // Use cached data immediately if available
+    const cachedTime = this.getCachedUrlTimeData(urlData.url);
+    if (cachedTime !== null) {
+      populateTimeSpans(cachedTime);
+    } else if (this.urlTimeCache[urlData.url] === undefined) {
+      // Load async if not yet cached
+      this.loadUrlTimeData(urlData.url).then(populateTimeSpans);
     }
 
     urlDisplay.appendChild(metaDiv);

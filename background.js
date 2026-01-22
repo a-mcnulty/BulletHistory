@@ -9,6 +9,164 @@ chrome.sidePanel
 const MAX_CLOSED_TABS = 50;
 const activeTabs = new Map();
 
+// ===== URL TIME TRACKING =====
+const MAX_DATA_AGE_DAYS = 90;
+let currentActiveTabId = null;
+let currentActiveUrl = null;
+let lastActiveTimestamp = null;
+let windowFocused = true;
+const backgroundTabsStartTime = {};  // { tabId: timestamp }
+
+// djb2 hash function, returns 8-char hex string
+function hashUrl(url) {
+  let hash = 5381;
+  for (let i = 0; i < url.length; i++) {
+    hash = ((hash << 5) + hash) ^ url.charCodeAt(i);
+  }
+  // Convert to unsigned 32-bit and then to hex
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function getTodayDateString() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function shouldSkipUrl(url) {
+  if (!url) return true;
+  return url.startsWith('chrome://') ||
+         url.startsWith('chrome-extension://') ||
+         url === 'about:blank' ||
+         url.startsWith('about:');
+}
+
+async function addTimeToUrl(url, timeType, seconds) {
+  if (shouldSkipUrl(url) || seconds <= 0) return;
+
+  const urlHash = hashUrl(url);
+  const dateStr = getTodayDateString();
+  const key = `${urlHash}:${dateStr}`;
+
+  try {
+    const result = await chrome.storage.local.get(['urlTimeData']);
+    const urlTimeData = result.urlTimeData || {};
+
+    if (!urlTimeData[key]) {
+      urlTimeData[key] = {
+        url: url,
+        a: 0,  // activeSeconds
+        b: 0   // backgroundSeconds
+      };
+    }
+
+    if (timeType === 'active') {
+      urlTimeData[key].a += seconds;
+    } else {
+      urlTimeData[key].b += seconds;
+    }
+
+    await chrome.storage.local.set({ urlTimeData });
+  } catch (e) {
+    console.warn('Failed to add time to URL:', e);
+  }
+}
+
+async function finalizeActiveTabTime() {
+  if (!currentActiveUrl || !lastActiveTimestamp || !windowFocused) return;
+
+  const now = Date.now();
+  const elapsedSeconds = Math.floor((now - lastActiveTimestamp) / 1000);
+
+  if (elapsedSeconds > 0) {
+    await addTimeToUrl(currentActiveUrl, 'active', elapsedSeconds);
+  }
+
+  lastActiveTimestamp = now;
+}
+
+async function finalizeBackgroundTime(tabId) {
+  const startTime = backgroundTabsStartTime[tabId];
+  if (!startTime) return;
+
+  const tabInfo = activeTabs.get(tabId);
+  if (!tabInfo || !tabInfo.url) {
+    delete backgroundTabsStartTime[tabId];
+    return;
+  }
+
+  const now = Date.now();
+  const elapsedSeconds = Math.floor((now - startTime) / 1000);
+
+  if (elapsedSeconds > 0) {
+    await addTimeToUrl(tabInfo.url, 'background', elapsedSeconds);
+  }
+
+  delete backgroundTabsStartTime[tabId];
+}
+
+async function updateBackgroundTracking(newActiveTabId) {
+  const now = Date.now();
+
+  // Start background tracking for the previously active tab (if it's still open)
+  if (currentActiveTabId !== null && currentActiveTabId !== newActiveTabId) {
+    if (activeTabs.has(currentActiveTabId)) {
+      backgroundTabsStartTime[currentActiveTabId] = now;
+    }
+  }
+
+  // Stop background tracking for the new active tab
+  if (newActiveTabId !== null && backgroundTabsStartTime[newActiveTabId]) {
+    await finalizeBackgroundTime(newActiveTabId);
+  }
+}
+
+async function startActiveTracking(tabId, url) {
+  // Finalize previous active time
+  await finalizeActiveTabTime();
+
+  // Update background tracking
+  await updateBackgroundTracking(tabId);
+
+  // Start new active tracking
+  currentActiveTabId = tabId;
+  currentActiveUrl = url;
+  lastActiveTimestamp = windowFocused ? Date.now() : null;
+}
+
+async function pruneOldTimeData() {
+  try {
+    const result = await chrome.storage.local.get(['urlTimeData']);
+    const urlTimeData = result.urlTimeData || {};
+
+    const now = new Date();
+    const cutoffDate = new Date(now);
+    cutoffDate.setDate(cutoffDate.getDate() - MAX_DATA_AGE_DAYS);
+
+    let pruned = false;
+    for (const key of Object.keys(urlTimeData)) {
+      // Key format: urlHash:YYYY-MM-DD
+      const datePart = key.split(':')[1];
+      if (datePart) {
+        const entryDate = new Date(datePart);
+        if (entryDate < cutoffDate) {
+          delete urlTimeData[key];
+          pruned = true;
+        }
+      }
+    }
+
+    if (pruned) {
+      await chrome.storage.local.set({ urlTimeData });
+      console.log('Pruned old URL time data');
+    }
+  } catch (e) {
+    console.warn('Failed to prune URL time data:', e);
+  }
+}
+
 // Favicon cache settings
 const MAX_FAVICON_CACHE = 1000; // Maximum number of cached favicons
 
@@ -81,6 +239,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   // Store tab info whenever it updates
   if (tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
     const existing = activeTabs.get(tabId);
+    const oldUrl = existing?.url;
     const tabInfo = {
       url: tab.url,
       title: tab.title || tab.url,
@@ -88,6 +247,20 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       openedAt: existing?.openedAt || Date.now() // Preserve original open time
     };
     activeTabs.set(tabId, tabInfo);
+
+    // Handle URL change for time tracking (SPA navigation)
+    if (changeInfo.url && oldUrl !== changeInfo.url) {
+      if (tabId === currentActiveTabId) {
+        // Active tab URL changed - finalize time for old URL, start tracking new URL
+        await finalizeActiveTabTime();
+        currentActiveUrl = changeInfo.url;
+        lastActiveTimestamp = windowFocused ? Date.now() : null;
+      } else if (backgroundTabsStartTime[tabId]) {
+        // Background tab URL changed - finalize time for old URL, restart background tracking
+        await finalizeBackgroundTime(tabId);
+        backgroundTabsStartTime[tabId] = Date.now();
+      }
+    }
 
     // Cache favicon
     await cacheFavicon(tab.url, tab.favIconUrl);
@@ -108,6 +281,16 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
+  // Finalize time tracking for this tab before removing
+  if (tabId === currentActiveTabId) {
+    await finalizeActiveTabTime();
+    currentActiveTabId = null;
+    currentActiveUrl = null;
+    lastActiveTimestamp = null;
+  } else if (backgroundTabsStartTime[tabId]) {
+    await finalizeBackgroundTime(tabId);
+  }
+
   // Get the tab data we stored
   const tabData = activeTabs.get(tabId);
 
@@ -158,12 +341,66 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
   });
 });
 
+// Track tab activation for time tracking
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  const { tabId } = activeInfo;
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab && tab.url) {
+      await startActiveTracking(tabId, tab.url);
+    }
+  } catch (e) {
+    // Tab might not exist anymore
+    console.warn('Failed to get tab for time tracking:', e);
+  }
+});
+
+// Track window focus changes
+chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) {
+    // Browser lost focus - all tabs are now "background"
+    await finalizeActiveTabTime();
+    windowFocused = false;
+    lastActiveTimestamp = null;
+
+    // Start background tracking for the previously active tab
+    if (currentActiveTabId !== null && activeTabs.has(currentActiveTabId)) {
+      backgroundTabsStartTime[currentActiveTabId] = Date.now();
+    }
+  } else {
+    // Browser gained focus
+    const wasFocused = windowFocused;
+    windowFocused = true;
+
+    // Stop background tracking and resume active tracking for current tab
+    if (currentActiveTabId !== null) {
+      if (backgroundTabsStartTime[currentActiveTabId]) {
+        await finalizeBackgroundTime(currentActiveTabId);
+      }
+      lastActiveTimestamp = Date.now();
+    }
+
+    // If we didn't have focus before, find the active tab in this window
+    if (!wasFocused) {
+      try {
+        const [activeTab] = await chrome.tabs.query({ active: true, windowId: windowId });
+        if (activeTab && activeTab.url) {
+          await startActiveTracking(activeTab.id, activeTab.url);
+        }
+      } catch (e) {
+        console.warn('Failed to get active tab on focus:', e);
+      }
+    }
+  }
+});
+
 // Initialize: Load existing tabs into the map
 chrome.storage.local.get(['openTabs'], (result) => {
   const storedTabs = result.openTabs || {};
 
   chrome.tabs.query({}, async (tabs) => {
     const openTabs = {};
+    let activeTab = null;
 
     tabs.forEach(tab => {
       if (tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://') && tab.url !== 'about:blank') {
@@ -175,31 +412,80 @@ chrome.storage.local.get(['openTabs'], (result) => {
         };
         activeTabs.set(tab.id, tabInfo);
         openTabs[tab.id] = tabInfo;
+
+        // Track the active tab
+        if (tab.active) {
+          activeTab = tab;
+        }
       }
     });
 
     // Save updated openTabs to storage
     await chrome.storage.local.set({ openTabs });
+
+    // Initialize time tracking
+    if (activeTab && activeTab.url && !shouldSkipUrl(activeTab.url)) {
+      currentActiveTabId = activeTab.id;
+      currentActiveUrl = activeTab.url;
+      lastActiveTimestamp = Date.now();
+
+      // Start background tracking for all other open tabs
+      const now = Date.now();
+      for (const [tabId, tabInfo] of activeTabs) {
+        if (tabId !== activeTab.id && !shouldSkipUrl(tabInfo.url)) {
+          backgroundTabsStartTime[tabId] = now;
+        }
+      }
+    }
+
+    // Run initial prune
+    await pruneOldTimeData();
   });
 });
 
-// ===== CALENDAR SYNC =====
+// ===== ALARMS =====
 
-// Calendar sync alarm name
+// Alarm names
 const CALENDAR_SYNC_ALARM = 'calendarSync';
+const URL_TIME_SAVE_ALARM = 'urlTimeSave';
+const URL_TIME_PRUNE_ALARM = 'urlTimePrune';
 
-// Create alarm for periodic calendar sync (every 15 minutes)
+// Create alarms
 chrome.alarms.create(CALENDAR_SYNC_ALARM, {
   periodInMinutes: 15
+});
+
+// URL time tracking alarms
+chrome.alarms.create(URL_TIME_SAVE_ALARM, {
+  periodInMinutes: 1  // Save every minute for crash protection
+});
+
+chrome.alarms.create(URL_TIME_PRUNE_ALARM, {
+  periodInMinutes: 360  // Prune every 6 hours
 });
 
 // Run initial sync on extension load
 syncCalendarEvents();
 
-// Handle alarm - sync calendar events
+// Handle alarms
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === CALENDAR_SYNC_ALARM) {
     await syncCalendarEvents();
+  } else if (alarm.name === URL_TIME_SAVE_ALARM) {
+    // Periodic save of active and background time
+    await finalizeActiveTabTime();
+    // Finalize all background tabs and restart their tracking
+    const now = Date.now();
+    for (const tabId of Object.keys(backgroundTabsStartTime)) {
+      const numTabId = parseInt(tabId);
+      await finalizeBackgroundTime(numTabId);
+      // Restart background tracking if tab is still open
+      if (activeTabs.has(numTabId) && numTabId !== currentActiveTabId) {
+        backgroundTabsStartTime[numTabId] = now;
+      }
+    }
+  } else if (alarm.name === URL_TIME_PRUNE_ALARM) {
+    await pruneOldTimeData();
   }
 });
 

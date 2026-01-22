@@ -812,6 +812,19 @@ body {
   text-align: right;
 }
 
+.url-item-time {
+  font-size: 10px;
+  color: #7cb342;
+  margin-left: 4px;
+  cursor: help;
+  min-width: 24px;
+  text-align: right;
+}
+
+.url-time-meta:empty {
+  display: none;
+}
+
 .url-item-actions {
   display: flex;
   gap: 6px;
