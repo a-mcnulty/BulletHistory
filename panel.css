@@ -983,6 +983,32 @@ body {
   font-weight: 500;
 }
 
+.url-display-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.url-display-row {
+  font-size: 11px;
+  color: #555;
+}
+
+.url-display-row .meta-label {
+  display: inline-block;
+  min-width: 110px;
+}
+
+.url-display-divider {
+  height: 1px;
+  background: #ddd;
+  margin: 8px 0;
+}
+
+.url-display-row-open {
+  color: #7cb342;
+}
+
 .url-item:hover .url-display {
   opacity: 1;
   pointer-events: auto;
