@@ -9,7 +9,9 @@ class BulletHistory {
     this.filteredMode = false; // Track if domains are filtered to expanded view
     this.originalSortedDomains = null; // Store full domain list when filtering
     this.faviconCache = {}; // Cached favicons from active tabs: { url: { favicon, timestamp } }
-    this.urlTimeCache = {}; // Cached URL time tracking data: { url: { activeSeconds, backgroundSeconds, totalSeconds } }
+    this.urlTimeCache = {}; // Cached URL time tracking data: { url: { activeSeconds, openSeconds } }
+    this.urlTimeDataByDomain = {}; // Time data organized by domain for cell rendering: { domain: { dateStr: { urls: Set, hourToUrls: { hour: Set } } } }
+    this.openTabsByUrl = {}; // Map of URL to openedAt timestamp for currently open tabs
 
     // View mode: 'day' (default) or 'hour' - will be loaded from storage in init()
     this.viewMode = 'day';
@@ -74,6 +76,8 @@ class BulletHistory {
     await this.loadColors();
     await this.loadFaviconCache();
     await this.fetchHistory();
+    await this.loadOpenTabsData();
+    await this.loadUrlTimeDataForCells();
 
     // Generate dates and hours based on view mode
     this.generateDates();
@@ -1250,21 +1254,26 @@ class BulletHistory {
       const domain = this.sortedDomains[rowIndex];
       if (!domain || domain.trim().length === 0) continue;
 
-      // Find max visit count for THIS DOMAIN (row-normalized)
+      // Find max unique URL count for THIS DOMAIN (row-normalized)
+      // Based on time tracking data (tabs open), not visit count
       let maxCount = 0;
       if (this.viewMode === 'hour') {
-        // In hour view, find max hourly count
+        // In hour view, find max hourly unique URL count
         if (this.hourlyData[domain]) {
-          Object.values(this.hourlyData[domain]).forEach(hourData => {
-            maxCount = Math.max(maxCount, hourData.count);
-          });
+          for (const hourStr of Object.keys(this.hourlyData[domain])) {
+            const count = this.getUniqueUrlCountForCell(domain, hourStr, true);
+            maxCount = Math.max(maxCount, count);
+          }
         }
       } else {
-        // In day view, find max daily count
-        Object.values(this.historyData[domain].days).forEach(day => {
-          maxCount = Math.max(maxCount, day.count);
-        });
+        // In day view, find max daily unique URL count
+        for (const dateStr of Object.keys(this.historyData[domain].days)) {
+          const count = this.getUniqueUrlCountForCell(domain, dateStr, false);
+          maxCount = Math.max(maxCount, count);
+        }
       }
+      // Ensure maxCount is at least 1 to avoid division by zero
+      if (maxCount === 0) maxCount = 1;
 
       // TLD label
       const tldRow = document.createElement('div');
@@ -1403,12 +1412,21 @@ class BulletHistory {
           cell.classList.add('col-today');
         }
 
-        if (visitData && visitData.count > 0) {
-          const baseColor = this.colors[domain];
-          // Use GitHub-style discrete color levels
-          cell.style.backgroundColor = this.getGitHubStyleColor(visitData.count, maxCount, baseColor);
+        // Get unique URL count from time data (or fallback to visit data)
+        const isHourView = this.viewMode === 'hour';
+        const uniqueUrlCount = this.getUniqueUrlCountForCell(domain, columnKey, isHourView);
 
-          cell.dataset.count = visitData.count;
+        if (uniqueUrlCount > 0) {
+          const baseColor = this.colors[domain];
+          // Use GitHub-style discrete color levels based on unique URL count
+          cell.style.backgroundColor = this.getGitHubStyleColor(uniqueUrlCount, maxCount, baseColor);
+
+          cell.dataset.count = uniqueUrlCount;
+        } else if (visitData && visitData.count > 0) {
+          // Fallback: if no time data but has visits, show with minimal intensity
+          const baseColor = this.colors[domain];
+          cell.style.backgroundColor = this.getGitHubStyleColor(1, maxCount, baseColor);
+          cell.dataset.count = 1;
         } else {
           cell.classList.add('empty');
           cell.dataset.count = 0;
@@ -1920,7 +1938,7 @@ class BulletHistory {
   }
 
   // Show full history view with all URLs from all domains
-  showFullHistory() {
+  async showFullHistory() {
     const expandedView = document.getElementById('expandedView');
     const expandedTitle = document.getElementById('expandedTitle');
 
@@ -1990,13 +2008,17 @@ class BulletHistory {
 
     // Store URLs and render with virtual scrolling
     this.expandedUrls = allUrls;
+
+    // Refresh time data cache before rendering
+    await this.refreshUrlTimeCache();
+
     this.renderUrlList();
 
     this.showExpandedViewAnimated();
   }
 
   // Show domain view with all URLs grouped by date
-  showDomainView(domain) {
+  async showDomainView(domain) {
     const expandedView = document.getElementById('expandedView');
     const expandedTitle = document.getElementById('expandedTitle');
     const urlList = document.getElementById('urlList');
@@ -2068,13 +2090,17 @@ class BulletHistory {
 
     // Store URLs and render with virtual scrolling
     this.expandedUrls = allUrls;
+
+    // Refresh time data cache before rendering
+    await this.refreshUrlTimeCache();
+
     this.renderUrlList();
 
     this.showExpandedViewAnimated();
   }
 
   // Show expanded view with URLs
-  showExpandedView(domain, date, count) {
+  async showExpandedView(domain, date, count) {
     const expandedView = document.getElementById('expandedView');
     const expandedTitle = document.getElementById('expandedTitle');
     const urlList = document.getElementById('urlList');
@@ -2102,9 +2128,6 @@ class BulletHistory {
       day: 'numeric',
       year: 'numeric'
     });
-
-    // Set title and date
-    expandedTitle.textContent = `${domain} (${count} url${count !== 1 ? 's' : ''})`;
 
     // Update or create navigation controls
     let navContainer = document.getElementById('expandedNav');
@@ -2159,16 +2182,49 @@ class BulletHistory {
     // Update button states
     this.updateNavButtons(domain, date);
 
-    // Get URLs for this cell
-    const dayData = this.historyData[domain].days[date];
-    if (!dayData || !dayData.urls) {
+    // Get the actual unique URL count for this cell (from time data or history)
+    const actualCount = this.getUniqueUrlCountForCell(domain, date, false);
+
+    // Update title with actual count
+    expandedTitle.textContent = `${domain} (${actualCount} url${actualCount !== 1 ? 's' : ''})`;
+
+    // Get URLs for this cell from Chrome history
+    const dayData = this.historyData[domain]?.days[date];
+    const historyUrls = dayData?.urls || [];
+
+    // Get URLs from time tracking data (tabs that were open this day)
+    const timeTrackingUrls = this.getUrlsFromTimeData(domain, date, false);
+
+    // Merge URLs: start with history URLs, add time tracking URLs that aren't already included
+    const historyUrlSet = new Set(historyUrls.map(u => u.url));
+    const mergedUrls = [...historyUrls];
+
+    // Add URLs from time tracking that aren't in history
+    for (const url of timeTrackingUrls) {
+      if (!historyUrlSet.has(url)) {
+        // Create a minimal URL entry for time-tracked-only URLs
+        mergedUrls.push({
+          url: url,
+          title: url, // Will be improved if we have cached title
+          visitCount: 0, // No visits, just time tracked
+          lastVisit: Date.now() // Use current time as placeholder
+        });
+      }
+    }
+
+    if (mergedUrls.length === 0) {
       urlList.innerHTML = '<div style="padding: 16px; color: #999;">No URLs found</div>';
       this.showExpandedViewAnimated();
       return;
     }
 
-    // Sort URLs chronologically (most recent first)
-    const urls = [...dayData.urls].sort((a, b) => b.lastVisit - a.lastVisit);
+    // Sort URLs chronologically (most recent first), time-only URLs at end
+    const urls = mergedUrls.sort((a, b) => {
+      // URLs with visits come first, sorted by lastVisit
+      if (a.visitCount > 0 && b.visitCount === 0) return -1;
+      if (a.visitCount === 0 && b.visitCount > 0) return 1;
+      return b.lastVisit - a.lastVisit;
+    });
 
     // Add domain and date to each URL
     const urlsWithContext = urls.map(urlData => ({
@@ -2179,6 +2235,10 @@ class BulletHistory {
 
     // Store URLs and render with virtual scrolling
     this.expandedUrls = urlsWithContext;
+
+    // Refresh time data cache before rendering
+    await this.refreshUrlTimeCache();
+
     this.renderUrlList();
 
     // Render calendar events for this date
@@ -2889,26 +2949,31 @@ class BulletHistory {
       const urlHash = this.hashUrl(url);
 
       let totalActive = 0;
-      let totalBackground = 0;
+      let totalOpen = 0;
 
       // Sum up all days for this URL
       for (const key of Object.keys(urlTimeData)) {
         if (key.startsWith(urlHash + ':')) {
           const entry = urlTimeData[key];
           totalActive += entry.a || 0;
-          totalBackground += entry.b || 0;
+          // Backwards compatibility: use 'o' if exists, else calculate from a + b for old entries
+          if (entry.o !== undefined) {
+            totalOpen += entry.o;
+          } else if (entry.b !== undefined) {
+            // Old format: open = active + background
+            totalOpen += (entry.a || 0) + entry.b;
+          }
         }
       }
 
-      if (totalActive === 0 && totalBackground === 0) {
+      if (totalActive === 0 && totalOpen === 0) {
         this.urlTimeCache[url] = null;
         return null;
       }
 
       const timeData = {
         activeSeconds: totalActive,
-        backgroundSeconds: totalBackground,
-        totalSeconds: totalActive + totalBackground
+        openSeconds: totalOpen
       };
 
       // Cache the result
@@ -2924,18 +2989,17 @@ class BulletHistory {
   formatTimeTracking(timeData) {
     if (!timeData) return null;
 
-    const totalSeconds = timeData.totalSeconds;
     const activeSeconds = timeData.activeSeconds;
-    const backgroundSeconds = timeData.backgroundSeconds;
+    const openSeconds = timeData.openSeconds;
 
-    // Format total time for display
+    // Format open time for display (total time tab was open)
     let display;
-    if (totalSeconds >= 3600) {
-      display = `${Math.floor(totalSeconds / 3600)}h`;
-    } else if (totalSeconds >= 60) {
-      display = `${Math.floor(totalSeconds / 60)}m`;
+    if (openSeconds >= 3600) {
+      display = `${Math.floor(openSeconds / 3600)}h`;
+    } else if (openSeconds >= 60) {
+      display = `${Math.floor(openSeconds / 60)}m`;
     } else {
-      display = `${totalSeconds}s`;
+      display = `${openSeconds}s`;
     }
 
     // Format detailed breakdown for tooltip
@@ -2951,9 +3015,180 @@ class BulletHistory {
       }
     };
 
-    const tooltip = `Active: ${formatTime(activeSeconds)}, Background: ${formatTime(backgroundSeconds)}`;
+    const tooltip = `Active: ${formatTime(activeSeconds)}, Open: ${formatTime(openSeconds)}`;
 
     return { display, tooltip };
+  }
+
+  // Load all URL time data organized by domain for cell rendering
+  // Also populates urlTimeCache for individual URL time display
+  async loadUrlTimeDataForCells() {
+    try {
+      // Request background to save current time data before reading
+      await chrome.runtime.sendMessage({ type: 'saveCurrentTimeData' }).catch(() => {
+        // Background might not respond, continue anyway
+      });
+
+      const result = await chrome.storage.local.get(['urlTimeData', 'urlHashes']);
+      const urlTimeData = result.urlTimeData || {};
+      const urlHashes = result.urlHashes || {};
+
+      this.urlTimeDataByDomain = {};
+
+      // Also aggregate time data per-URL for the urlTimeCache
+      const urlTimeAggregates = {}; // { url: { activeSeconds, openSeconds } }
+
+      for (const key of Object.keys(urlTimeData)) {
+        const entry = urlTimeData[key];
+
+        // Extract hash and date from key (format: urlHash:YYYY-MM-DD)
+        const [urlHash, dateStr] = key.split(':');
+        if (!dateStr) continue;
+
+        // Look up URL from hash table, fall back to entry.url for old entries
+        const url = urlHashes[urlHash] || entry.url;
+        if (!url) continue;
+
+        // Aggregate time data for this URL
+        if (!urlTimeAggregates[url]) {
+          urlTimeAggregates[url] = { activeSeconds: 0, openSeconds: 0 };
+        }
+        urlTimeAggregates[url].activeSeconds += entry.a || 0;
+        // Handle both new format (o) and old format (b)
+        if (entry.o !== undefined) {
+          urlTimeAggregates[url].openSeconds += entry.o;
+        } else if (entry.b !== undefined) {
+          urlTimeAggregates[url].openSeconds += (entry.a || 0) + entry.b;
+        }
+
+        // Get domain from URL
+        let domain;
+        try {
+          const urlObj = new URL(url);
+          domain = urlObj.hostname;
+        } catch (e) {
+          continue;
+        }
+
+        // Initialize domain structure
+        if (!this.urlTimeDataByDomain[domain]) {
+          this.urlTimeDataByDomain[domain] = {};
+        }
+
+        // Initialize date structure
+        if (!this.urlTimeDataByDomain[domain][dateStr]) {
+          this.urlTimeDataByDomain[domain][dateStr] = {
+            urls: new Set(),
+            hourToUrls: {}  // { hour: Set of URLs }
+          };
+        }
+
+        // Add URL to this date
+        this.urlTimeDataByDomain[domain][dateStr].urls.add(url);
+
+        // Add URL to specific hours
+        const hours = entry.h || [];
+        for (const hour of hours) {
+          if (!this.urlTimeDataByDomain[domain][dateStr].hourToUrls[hour]) {
+            this.urlTimeDataByDomain[domain][dateStr].hourToUrls[hour] = new Set();
+          }
+          this.urlTimeDataByDomain[domain][dateStr].hourToUrls[hour].add(url);
+        }
+      }
+
+      // Populate urlTimeCache with aggregated data
+      this.urlTimeCache = {};
+      for (const [url, data] of Object.entries(urlTimeAggregates)) {
+        if (data.activeSeconds > 0 || data.openSeconds > 0) {
+          this.urlTimeCache[url] = data;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load URL time data for cells:', e);
+    }
+  }
+
+  // Refresh URL time cache - requests background to save current data and reloads
+  // Call this before rendering views that need fresh time data
+  async refreshUrlTimeCache() {
+    // Also refresh open tabs data so we can use openedAt for currently open tabs
+    await this.loadOpenTabsData();
+    await this.loadUrlTimeDataForCells();
+  }
+
+  // Load open tabs data to get openedAt timestamps for currently open tabs
+  async loadOpenTabsData() {
+    try {
+      const result = await chrome.storage.local.get(['openTabs']);
+      const openTabs = result.openTabs || {};
+      this.openTabsByUrl = {};
+      for (const [tabId, tabData] of Object.entries(openTabs)) {
+        if (tabData.url && tabData.openedAt) {
+          this.openTabsByUrl[tabData.url] = tabData.openedAt;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load open tabs data:', e);
+    }
+  }
+
+  // Get URLs from time tracking data for a domain + date (or hour)
+  // Returns array of URL strings that have time data for the specified time slot
+  getUrlsFromTimeData(domain, timeSlot, isHourView) {
+    const domainTimeData = this.urlTimeDataByDomain[domain];
+    if (!domainTimeData) return [];
+
+    if (isHourView) {
+      // timeSlot format: 'YYYY-MM-DDTHH' (e.g., '2025-01-22T14')
+      const [dateStr, hourStr] = timeSlot.split('T');
+      const hour = parseInt(hourStr, 10);
+
+      if (domainTimeData[dateStr] && domainTimeData[dateStr].hourToUrls[hour]) {
+        return Array.from(domainTimeData[dateStr].hourToUrls[hour]);
+      }
+      return [];
+    } else {
+      // Day view: timeSlot is dateStr (e.g., '2025-01-22')
+      if (domainTimeData[timeSlot] && domainTimeData[timeSlot].urls) {
+        return Array.from(domainTimeData[timeSlot].urls);
+      }
+      return [];
+    }
+  }
+
+  // Get unique URL count for a cell (domain + time slot)
+  // Returns count based on time data, or falls back to visit-based count
+  getUniqueUrlCountForCell(domain, timeSlot, isHourView) {
+    const domainTimeData = this.urlTimeDataByDomain[domain];
+
+    if (isHourView) {
+      // timeSlot format: 'YYYY-MM-DDTHH' (e.g., '2025-01-22T14')
+      const [dateStr, hourStr] = timeSlot.split('T');
+      const hour = parseInt(hourStr, 10);
+
+      if (domainTimeData && domainTimeData[dateStr] && domainTimeData[dateStr].hourToUrls[hour]) {
+        return domainTimeData[dateStr].hourToUrls[hour].size;
+      }
+
+      // Fallback: use existing hourlyData
+      const hourData = this.hourlyData[domain]?.[timeSlot];
+      if (hourData && hourData.urls) {
+        return hourData.urls.length;
+      }
+      return 0;
+    } else {
+      // Day view: timeSlot is dateStr (e.g., '2025-01-22')
+      if (domainTimeData && domainTimeData[timeSlot]) {
+        return domainTimeData[timeSlot].urls.size;
+      }
+
+      // Fallback: use existing historyData
+      const dayData = this.historyData[domain]?.days[timeSlot];
+      if (dayData && dayData.urls) {
+        return dayData.urls.length;
+      }
+      return 0;
+    }
   }
 
   // Create a URL item element
@@ -2979,25 +3214,40 @@ class BulletHistory {
     const timeSpan = document.createElement('span');
     timeSpan.className = 'url-item-time';
 
-    // Use cached data immediately if available, otherwise load async
-    const cachedTimeData = this.getCachedUrlTimeData(urlData.url);
-    if (cachedTimeData !== null) {
-      const formatted = this.formatTimeTracking(cachedTimeData);
+    // Check if this URL is currently open - use openedAt for accurate open time
+    const openedAt = urlData.openedAt || this.openTabsByUrl[urlData.url];
+
+    if (openedAt) {
+      // URL is currently open - calculate open time from when tab was opened
+      const openSeconds = Math.floor((Date.now() - openedAt) / 1000);
+      const cachedTimeData = this.getCachedUrlTimeData(urlData.url);
+      const activeSeconds = cachedTimeData?.activeSeconds || 0;
+      const formatted = this.formatTimeTracking({ activeSeconds, openSeconds });
       if (formatted) {
         timeSpan.textContent = formatted.display;
         timeSpan.title = formatted.tooltip;
       }
-    }
-
-    // Always load to populate cache for future renders (if not already cached)
-    if (cachedTimeData === null && this.urlTimeCache[urlData.url] === undefined) {
-      this.loadUrlTimeData(urlData.url).then(timeData => {
-        const formatted = this.formatTimeTracking(timeData);
+    } else {
+      // URL is not currently open - use stored time data
+      const cachedTimeData = this.getCachedUrlTimeData(urlData.url);
+      if (cachedTimeData !== null) {
+        const formatted = this.formatTimeTracking(cachedTimeData);
         if (formatted) {
           timeSpan.textContent = formatted.display;
           timeSpan.title = formatted.tooltip;
         }
-      });
+      }
+
+      // Always load to populate cache for future renders (if not already cached)
+      if (cachedTimeData === null && this.urlTimeCache[urlData.url] === undefined) {
+        this.loadUrlTimeData(urlData.url).then(timeData => {
+          const formatted = this.formatTimeTracking(timeData);
+          if (formatted) {
+            timeSpan.textContent = formatted.display;
+            timeSpan.title = formatted.tooltip;
+          }
+        });
+      }
     }
 
     // Create timestamp
@@ -3244,17 +3494,26 @@ class BulletHistory {
     const populateTimeSpans = (timeData) => {
       if (timeData) {
         activeTimeSpan.innerHTML = `<span class="meta-label">Active:</span> ${formatTimeDisplay(timeData.activeSeconds)}`;
-        bgTimeSpan.innerHTML = `<span class="meta-label">Background:</span> ${formatTimeDisplay(timeData.backgroundSeconds)}`;
+        bgTimeSpan.innerHTML = `<span class="meta-label">Open:</span> ${formatTimeDisplay(timeData.openSeconds)}`;
       }
     };
 
-    // Use cached data immediately if available
-    const cachedTime = this.getCachedUrlTimeData(urlData.url);
-    if (cachedTime !== null) {
-      populateTimeSpans(cachedTime);
-    } else if (this.urlTimeCache[urlData.url] === undefined) {
-      // Load async if not yet cached
-      this.loadUrlTimeData(urlData.url).then(populateTimeSpans);
+    // Reuse openedAt from earlier in this function for the hover display
+    if (openedAt) {
+      // URL is currently open - calculate open time from when tab was opened
+      const openSeconds = Math.floor((Date.now() - openedAt) / 1000);
+      const cachedTime = this.getCachedUrlTimeData(urlData.url);
+      const activeSeconds = cachedTime?.activeSeconds || 0;
+      populateTimeSpans({ activeSeconds, openSeconds });
+    } else {
+      // URL is not currently open - use stored time data
+      const cachedTime = this.getCachedUrlTimeData(urlData.url);
+      if (cachedTime !== null) {
+        populateTimeSpans(cachedTime);
+      } else if (this.urlTimeCache[urlData.url] === undefined) {
+        // Load async if not yet cached
+        this.loadUrlTimeData(urlData.url).then(populateTimeSpans);
+      }
     }
 
     urlDisplay.appendChild(metaDiv);
@@ -4258,6 +4517,14 @@ class BulletHistory {
         if (changes.closedTabs && this.expandedViewType === 'closed') {
           this.showRecentlyClosed();
         }
+
+        // Reload URL time data cache when it's updated (for cell rendering)
+        if (changes.urlTimeData) {
+          this.loadUrlTimeDataForCells().then(() => {
+            // Clear the URL time cache for display as well
+            this.urlTimeCache = {};
+          });
+        }
       }
     });
   }
@@ -4670,7 +4937,10 @@ class BulletHistory {
   }
 
   // Show expanded view for a specific domain and hour
-  showDomainHourView(domain, hourStr, count) {
+  async showDomainHourView(domain, hourStr, count) {
+    // Refresh time data cache before showing URL items
+    await this.refreshUrlTimeCache();
+
     const expandedView = document.getElementById('expandedView');
     const expandedTitle = document.getElementById('expandedTitle');
     const urlList = document.getElementById('urlList');
@@ -4704,9 +4974,6 @@ class BulletHistory {
     const displayHour = hourNum === 0 ? 12 : (hourNum > 12 ? hourNum - 12 : hourNum);
     const hourDisplay = `${displayHour}:00 ${ampm}`;
 
-    // Set title
-    expandedTitle.textContent = `${domain} - ${formattedDate} ${hourDisplay} (${count} url${count !== 1 ? 's' : ''})`;
-
     // Remove delete domain button if it exists
     const deleteBtn = document.getElementById('deleteDomain');
     if (deleteBtn) {
@@ -4719,27 +4986,57 @@ class BulletHistory {
       navContainer.remove();
     }
 
-    // Get URLs for this domain and hour
+    // Get URLs for this domain and hour from Chrome history
     const hourData = this.hourlyData[domain]?.[hourStr];
+    const historyUrls = hourData?.urls || [];
+
+    // Get URLs from time tracking data (tabs that were open this hour)
+    const timeTrackingUrls = this.getUrlsFromTimeData(domain, hourStr, true);
+
+    // Merge URLs: start with history URLs, add time tracking URLs that aren't already included
+    const historyUrlSet = new Set(historyUrls.map(u => u.url));
+    const mergedUrls = [...historyUrls];
+
+    // Add URLs from time tracking that aren't in history
+    for (const url of timeTrackingUrls) {
+      if (!historyUrlSet.has(url)) {
+        mergedUrls.push({
+          url: url,
+          title: url,
+          visitCount: 0,
+          lastVisit: Date.now()
+        });
+      }
+    }
 
     // Clear URL list
     urlList.innerHTML = '';
 
-    if (!hourData || !hourData.urls || hourData.urls.length === 0) {
+    // Get the actual unique URL count for this cell
+    const actualCount = this.getUniqueUrlCountForCell(domain, hourStr, true);
+
+    // Update title with actual count
+    expandedTitle.textContent = `${domain} - ${formattedDate} ${hourDisplay} (${actualCount} url${actualCount !== 1 ? 's' : ''})`;
+
+    if (mergedUrls.length === 0) {
       urlList.innerHTML = '<div class="no-urls">No URLs found</div>';
       this.showExpandedViewAnimated();
       return;
     }
 
     // Sort URLs based on current sort mode
-    let urls = [...hourData.urls];
+    let urls = [...mergedUrls];
     if (this.sortMode === 'popular') {
       urls.sort((a, b) => b.visitCount - a.visitCount);
     } else if (this.sortMode === 'alphabetical') {
       urls.sort((a, b) => a.url.localeCompare(b.url));
     } else {
-      // Most Recent (default)
-      urls.sort((a, b) => b.lastVisit - a.lastVisit);
+      // Most Recent (default) - URLs with visits first, then by time
+      urls.sort((a, b) => {
+        if (a.visitCount > 0 && b.visitCount === 0) return -1;
+        if (a.visitCount === 0 && b.visitCount > 0) return 1;
+        return b.lastVisit - a.lastVisit;
+      });
     }
 
     // Add domain and hourStr to each URL (not datePart!)
@@ -4760,7 +5057,10 @@ class BulletHistory {
   }
 
   // Show expanded view for a specific hour with URLs and calendar events
-  showHourExpandedView(hourStr) {
+  async showHourExpandedView(hourStr) {
+    // Refresh time data cache before showing URL items
+    await this.refreshUrlTimeCache();
+
     const expandedView = document.getElementById('expandedView');
     const expandedTitle = document.getElementById('expandedTitle');
     const urlList = document.getElementById('urlList');
@@ -5127,9 +5427,12 @@ class BulletHistory {
 
       this.expandedUrls = recentUrls;
       expandedTitle.textContent = `Recent History (${recentUrls.length} total)`;
-      this.renderUrlList();
 
-      this.showExpandedViewAnimated();
+      // Refresh time data cache before rendering
+      this.refreshUrlTimeCache().then(() => {
+        this.renderUrlList();
+        this.showExpandedViewAnimated();
+      });
     });
   }
 
@@ -5260,13 +5563,17 @@ class BulletHistory {
         // Store bookmarks and render with filtering
         this.expandedUrls = sortedBookmarks;
         expandedTitle.textContent = `Bookmarks (${bookmarks.length} total)`;
-        this.renderUrlList();
 
-        // Restore full domain list first, then filter to bookmarked domains
-        this.restoreAllDomains();
-        this.filterDomainsToExpandedView();
+        // Refresh time data cache before rendering
+        this.refreshUrlTimeCache().then(() => {
+          this.renderUrlList();
 
-        this.showExpandedViewAnimated();
+          // Restore full domain list first, then filter to bookmarked domains
+          this.restoreAllDomains();
+          this.filterDomainsToExpandedView();
+
+          this.showExpandedViewAnimated();
+        });
       });
     });
   }
@@ -5368,13 +5675,17 @@ class BulletHistory {
 
         this.expandedUrls = closedUrls;
         expandedTitle.textContent = `Recently Closed (${closedUrls.length} total)`;
-        this.renderUrlList();
 
-        // Restore full domain list first, then filter to closed tab domains
-        this.restoreAllDomains();
-        this.filterDomainsToExpandedView();
+        // Refresh time data cache before rendering
+        this.refreshUrlTimeCache().then(() => {
+          this.renderUrlList();
 
-        this.showExpandedViewAnimated();
+          // Restore full domain list first, then filter to closed tab domains
+          this.restoreAllDomains();
+          this.filterDomainsToExpandedView();
+
+          this.showExpandedViewAnimated();
+        });
       });
     });
   }
@@ -5404,6 +5715,9 @@ class BulletHistory {
     if (navContainer) navContainer.remove();
     const deleteBtn = document.getElementById('deleteDomain');
     if (deleteBtn) deleteBtn.remove();
+
+    // Refresh time data cache for fresh data
+    await this.refreshUrlTimeCache();
 
     // Get open tabs from storage
     const result = await chrome.storage.local.get(['openTabs']);
@@ -5495,6 +5809,7 @@ class BulletHistory {
     this.expandedUrls = sortedActiveTabsArray;
     const windowCount = Object.keys(tabsByWindow).length;
     expandedTitle.textContent = `Active Tabs (${sortedActiveTabsArray.length} tabs in ${windowCount} window${windowCount !== 1 ? 's' : ''})`;
+
     this.renderUrlList();
 
     // Restore full domain list first, then filter to active tab domains

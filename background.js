@@ -15,7 +15,10 @@ let currentActiveTabId = null;
 let currentActiveUrl = null;
 let lastActiveTimestamp = null;
 let windowFocused = true;
-const backgroundTabsStartTime = {};  // { tabId: timestamp }
+const openTabsStartTime = {};  // { tabId: timestamp } - tracks open time for ALL tabs
+let timeTrackingInitialized = false;
+let initPromiseResolve = null;
+const initPromise = new Promise(resolve => { initPromiseResolve = resolve; });
 
 // djb2 hash function, returns 8-char hex string
 function hashUrl(url) {
@@ -43,32 +46,54 @@ function shouldSkipUrl(url) {
          url.startsWith('about:');
 }
 
+function getCurrentHour() {
+  return new Date().getHours();
+}
+
 async function addTimeToUrl(url, timeType, seconds) {
   if (shouldSkipUrl(url) || seconds <= 0) return;
 
   const urlHash = hashUrl(url);
   const dateStr = getTodayDateString();
   const key = `${urlHash}:${dateStr}`;
+  const currentHour = getCurrentHour();
 
   try {
-    const result = await chrome.storage.local.get(['urlTimeData']);
+    const result = await chrome.storage.local.get(['urlTimeData', 'urlHashes']);
     const urlTimeData = result.urlTimeData || {};
+    const urlHashes = result.urlHashes || {};
+
+    // Store URL in separate hash lookup (once per unique URL)
+    if (!urlHashes[urlHash]) {
+      urlHashes[urlHash] = url;
+    }
 
     if (!urlTimeData[key]) {
       urlTimeData[key] = {
-        url: url,
-        a: 0,  // activeSeconds
-        b: 0   // backgroundSeconds
+        a: 0,  // activeSeconds (when tab is focused)
+        o: 0,  // openSeconds (total time tab is open)
+        h: []  // hours with tab open (0-23)
       };
+    }
+
+    // Ensure h array exists for older entries
+    if (!urlTimeData[key].h) {
+      urlTimeData[key].h = [];
     }
 
     if (timeType === 'active') {
       urlTimeData[key].a += seconds;
-    } else {
-      urlTimeData[key].b += seconds;
+    } else if (timeType === 'open') {
+      urlTimeData[key].o += seconds;
     }
 
-    await chrome.storage.local.set({ urlTimeData });
+    // Add current hour to hours array if not already present
+    if (!urlTimeData[key].h.includes(currentHour)) {
+      urlTimeData[key].h.push(currentHour);
+      urlTimeData[key].h.sort((a, b) => a - b);
+    }
+
+    await chrome.storage.local.set({ urlTimeData, urlHashes });
   } catch (e) {
     console.warn('Failed to add time to URL:', e);
   }
@@ -81,19 +106,21 @@ async function finalizeActiveTabTime() {
   const elapsedSeconds = Math.floor((now - lastActiveTimestamp) / 1000);
 
   if (elapsedSeconds > 0) {
+    // Active time contributes to both 'a' (active) AND 'o' (open)
     await addTimeToUrl(currentActiveUrl, 'active', elapsedSeconds);
+    await addTimeToUrl(currentActiveUrl, 'open', elapsedSeconds);
   }
 
   lastActiveTimestamp = now;
 }
 
-async function finalizeBackgroundTime(tabId) {
-  const startTime = backgroundTabsStartTime[tabId];
+async function finalizeOpenTime(tabId) {
+  const startTime = openTabsStartTime[tabId];
   if (!startTime) return;
 
   const tabInfo = activeTabs.get(tabId);
   if (!tabInfo || !tabInfo.url) {
-    delete backgroundTabsStartTime[tabId];
+    delete openTabsStartTime[tabId];
     return;
   }
 
@@ -101,25 +128,25 @@ async function finalizeBackgroundTime(tabId) {
   const elapsedSeconds = Math.floor((now - startTime) / 1000);
 
   if (elapsedSeconds > 0) {
-    await addTimeToUrl(tabInfo.url, 'background', elapsedSeconds);
+    await addTimeToUrl(tabInfo.url, 'open', elapsedSeconds);
   }
 
-  delete backgroundTabsStartTime[tabId];
+  delete openTabsStartTime[tabId];
 }
 
-async function updateBackgroundTracking(newActiveTabId) {
+async function updateOpenTracking(newActiveTabId) {
   const now = Date.now();
 
-  // Start background tracking for the previously active tab (if it's still open)
+  // Start open tracking for the previously active tab (if it's still open)
   if (currentActiveTabId !== null && currentActiveTabId !== newActiveTabId) {
     if (activeTabs.has(currentActiveTabId)) {
-      backgroundTabsStartTime[currentActiveTabId] = now;
+      openTabsStartTime[currentActiveTabId] = now;
     }
   }
 
-  // Stop background tracking for the new active tab
-  if (newActiveTabId !== null && backgroundTabsStartTime[newActiveTabId]) {
-    await finalizeBackgroundTime(newActiveTabId);
+  // Stop open tracking for the new active tab (its open time is tracked via active time)
+  if (newActiveTabId !== null && openTabsStartTime[newActiveTabId]) {
+    await finalizeOpenTime(newActiveTabId);
   }
 }
 
@@ -127,8 +154,8 @@ async function startActiveTracking(tabId, url) {
   // Finalize previous active time
   await finalizeActiveTabTime();
 
-  // Update background tracking
-  await updateBackgroundTracking(tabId);
+  // Update open tracking
+  await updateOpenTracking(tabId);
 
   // Start new active tracking
   currentActiveTabId = tabId;
@@ -138,8 +165,9 @@ async function startActiveTracking(tabId, url) {
 
 async function pruneOldTimeData() {
   try {
-    const result = await chrome.storage.local.get(['urlTimeData']);
+    const result = await chrome.storage.local.get(['urlTimeData', 'urlHashes']);
     const urlTimeData = result.urlTimeData || {};
+    const urlHashes = result.urlHashes || {};
 
     const now = new Date();
     const cutoffDate = new Date(now);
@@ -158,8 +186,17 @@ async function pruneOldTimeData() {
       }
     }
 
+    // Clean up orphaned urlHashes (hashes with no remaining time data)
+    const usedHashes = new Set(Object.keys(urlTimeData).map(key => key.split(':')[0]));
+    for (const hash of Object.keys(urlHashes)) {
+      if (!usedHashes.has(hash)) {
+        delete urlHashes[hash];
+        pruned = true;
+      }
+    }
+
     if (pruned) {
-      await chrome.storage.local.set({ urlTimeData });
+      await chrome.storage.local.set({ urlTimeData, urlHashes });
       console.log('Pruned old URL time data');
     }
   } catch (e) {
@@ -255,10 +292,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
         await finalizeActiveTabTime();
         currentActiveUrl = changeInfo.url;
         lastActiveTimestamp = windowFocused ? Date.now() : null;
-      } else if (backgroundTabsStartTime[tabId]) {
-        // Background tab URL changed - finalize time for old URL, restart background tracking
-        await finalizeBackgroundTime(tabId);
-        backgroundTabsStartTime[tabId] = Date.now();
+      } else if (openTabsStartTime[tabId]) {
+        // Background tab URL changed - finalize open time for old URL, restart open tracking
+        await finalizeOpenTime(tabId);
+        openTabsStartTime[tabId] = Date.now();
       }
     }
 
@@ -287,8 +324,8 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     currentActiveTabId = null;
     currentActiveUrl = null;
     lastActiveTimestamp = null;
-  } else if (backgroundTabsStartTime[tabId]) {
-    await finalizeBackgroundTime(tabId);
+  } else if (openTabsStartTime[tabId]) {
+    await finalizeOpenTime(tabId);
   }
 
   // Get the tab data we stored
@@ -363,19 +400,19 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
     windowFocused = false;
     lastActiveTimestamp = null;
 
-    // Start background tracking for the previously active tab
+    // Start open tracking for the previously active tab (it's now background)
     if (currentActiveTabId !== null && activeTabs.has(currentActiveTabId)) {
-      backgroundTabsStartTime[currentActiveTabId] = Date.now();
+      openTabsStartTime[currentActiveTabId] = Date.now();
     }
   } else {
     // Browser gained focus
     const wasFocused = windowFocused;
     windowFocused = true;
 
-    // Stop background tracking and resume active tracking for current tab
+    // Stop open tracking and resume active tracking for current tab
     if (currentActiveTabId !== null) {
-      if (backgroundTabsStartTime[currentActiveTabId]) {
-        await finalizeBackgroundTime(currentActiveTabId);
+      if (openTabsStartTime[currentActiveTabId]) {
+        await finalizeOpenTime(currentActiveTabId);
       }
       lastActiveTimestamp = Date.now();
     }
@@ -429,17 +466,21 @@ chrome.storage.local.get(['openTabs'], (result) => {
       currentActiveUrl = activeTab.url;
       lastActiveTimestamp = Date.now();
 
-      // Start background tracking for all other open tabs
+      // Start open tracking for all other open tabs (background tabs)
       const now = Date.now();
       for (const [tabId, tabInfo] of activeTabs) {
         if (tabId !== activeTab.id && !shouldSkipUrl(tabInfo.url)) {
-          backgroundTabsStartTime[tabId] = now;
+          openTabsStartTime[tabId] = now;
         }
       }
     }
 
     // Run initial prune
     await pruneOldTimeData();
+
+    // Mark initialization as complete
+    timeTrackingInitialized = true;
+    if (initPromiseResolve) initPromiseResolve();
   });
 });
 
@@ -472,20 +513,55 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === CALENDAR_SYNC_ALARM) {
     await syncCalendarEvents();
   } else if (alarm.name === URL_TIME_SAVE_ALARM) {
-    // Periodic save of active and background time
+    // Periodic save of active and open time
     await finalizeActiveTabTime();
-    // Finalize all background tabs and restart their tracking
+    // Finalize all background tabs' open time and restart their tracking
     const now = Date.now();
-    for (const tabId of Object.keys(backgroundTabsStartTime)) {
+    for (const tabId of Object.keys(openTabsStartTime)) {
       const numTabId = parseInt(tabId);
-      await finalizeBackgroundTime(numTabId);
-      // Restart background tracking if tab is still open
+      await finalizeOpenTime(numTabId);
+      // Restart open tracking if tab is still open (and not the active tab)
       if (activeTabs.has(numTabId) && numTabId !== currentActiveTabId) {
-        backgroundTabsStartTime[numTabId] = now;
+        openTabsStartTime[numTabId] = now;
       }
     }
   } else if (alarm.name === URL_TIME_PRUNE_ALARM) {
     await pruneOldTimeData();
+  }
+});
+
+// Handle messages from panel
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'saveCurrentTimeData') {
+    // Finalize and save all current time tracking data
+    (async () => {
+      try {
+        // Wait for initialization to complete if needed
+        if (!timeTrackingInitialized) {
+          await initPromise;
+        }
+
+        // Save active tab time
+        await finalizeActiveTabTime();
+
+        // Finalize all background tabs' open time and restart their tracking
+        const now = Date.now();
+        for (const tabId of Object.keys(openTabsStartTime)) {
+          const numTabId = parseInt(tabId);
+          await finalizeOpenTime(numTabId);
+          // Restart open tracking if tab is still open (and not the active tab)
+          if (activeTabs.has(numTabId) && numTabId !== currentActiveTabId) {
+            openTabsStartTime[numTabId] = now;
+          }
+        }
+
+        sendResponse({ success: true });
+      } catch (e) {
+        console.warn('Failed to save time data:', e);
+        sendResponse({ success: false, error: e.message });
+      }
+    })();
+    return true; // Keep channel open for async response
   }
 });
 
