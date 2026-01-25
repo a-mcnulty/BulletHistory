@@ -3583,6 +3583,12 @@ class BulletHistory {
       urlDisplay.appendChild(fullTitle);
     }
 
+    // Add URL below title (limited to 3 lines via CSS)
+    const fullUrl = document.createElement('div');
+    fullUrl.className = 'url-display-url';
+    fullUrl.textContent = urlData.url;
+    urlDisplay.appendChild(fullUrl);
+
     // Helper to format time for display
     const formatTimeDisplay = (seconds) => {
       if (seconds >= 86400) {
@@ -3760,12 +3766,6 @@ class BulletHistory {
 
     // Add actions inside the hover display
     urlDisplay.appendChild(actionsDiv);
-
-    // Add URL at the bottom
-    const fullUrl = document.createElement('div');
-    fullUrl.className = 'url-display-url';
-    fullUrl.textContent = urlData.url;
-    urlDisplay.appendChild(fullUrl);
 
     // For active tabs, switch to the tab instead of opening a new one
     if (this.expandedViewType === 'active' && urlData.tabId) {
