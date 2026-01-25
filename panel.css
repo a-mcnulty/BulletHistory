@@ -464,7 +464,6 @@ body {
   background: #fff;
   border-color: #f0f0f0;
   cursor: default;
-  pointer-events: none;
 }
 
 .cell.col-hover::before {
@@ -935,14 +934,14 @@ body {
   top: 100%;
   background: #fff;
   padding: 8px 10px;
-  margin: 10px 0px;
+  margin: 4px 0px;
   border-radius: 0 0 6px 6px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
   z-index: 100;
   opacity: 0;
   pointer-events: none;
   transform: translateY(-4px);
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition: opacity 0.25s ease, transform 0.25s ease;
   max-width: 400px;
 }
 
@@ -1047,6 +1046,10 @@ body {
 
 .virtual-scroll-content {
   width: 100%;
+}
+
+.url-item-placeholder {
+  box-sizing: border-box;
 }
 
 /* Bottom Menu */

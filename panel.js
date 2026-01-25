@@ -2317,44 +2317,131 @@ class BulletHistory {
     urlList.innerHTML = '';
     urlList.classList.toggle('bookmarks-view', this.expandedViewType === 'bookmarks');
 
-    // Create virtual scroll container
-    const virtualContainer = document.createElement('div');
-    virtualContainer.className = 'virtual-scroll-container';
-    virtualContainer.style.height = `${totalHeight}px`;
-    virtualContainer.style.position = 'relative';
+    // Create container for all items
+    const itemsContainer = document.createElement('div');
+    itemsContainer.className = 'virtual-scroll-container';
+    urlList.appendChild(itemsContainer);
 
-    // Create content container for visible items
-    const contentContainer = document.createElement('div');
-    contentContainer.className = 'virtual-scroll-content';
-    contentContainer.style.position = 'absolute';
-    contentContainer.style.left = '0';
-    contentContainer.style.right = '0';
-    virtualContainer.appendChild(contentContainer);
-
-    urlList.appendChild(virtualContainer);
-
-    // Remove old scroll handler if exists
-    if (this.urlListScrollHandler) {
-      expandedView.removeEventListener('scroll', this.urlListScrollHandler);
+    // Disconnect old observer if exists
+    if (this.urlListObserver) {
+      this.urlListObserver.disconnect();
     }
 
-    // Create new scroll handler
-    this.urlListScrollHandler = () => {
-      this.renderVisibleUrlItems(expandedView, contentContainer);
-    };
+    // Create Intersection Observer to detect visible items
+    this.urlListObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        const placeholder = entry.target;
+        if (entry.isIntersecting && !placeholder.dataset.populated) {
+          // Item is visible - populate it
+          this.populateUrlItem(placeholder);
+        }
+      });
+    }, {
+      root: expandedView,
+      rootMargin: '100px 0px', // Pre-load items 100px before they're visible
+      threshold: 0
+    });
 
-    // Add scroll listener
-    expandedView.addEventListener('scroll', this.urlListScrollHandler);
+    // Create placeholder elements for all items
+    for (let i = 0; i < this.virtualRows.length; i++) {
+      const row = this.virtualRows[i];
+      const placeholder = document.createElement('div');
+      placeholder.dataset.rowIndex = i;
+
+      if (row.type === 'header') {
+        placeholder.className = 'url-item-placeholder header-placeholder';
+        placeholder.style.height = `${this.urlListHeaderHeight}px`;
+      } else {
+        placeholder.className = 'url-item-placeholder';
+        placeholder.style.height = `${this.urlListRowHeight}px`;
+      }
+
+      itemsContainer.appendChild(placeholder);
+      this.urlListObserver.observe(placeholder);
+    }
 
     // For bookmarks view: set up container-level drag handlers
     if (this.expandedViewType === 'bookmarks') {
-      this.setupUrlListDropTarget(virtualContainer);
+      this.setupUrlListDropTarget(itemsContainer);
     }
+  }
 
-    // Initial render of visible items
-    requestAnimationFrame(() => {
-      this.renderVisibleUrlItems(expandedView, contentContainer);
-    });
+  // Populate a placeholder with actual content
+  populateUrlItem(placeholder) {
+    const rowIndex = parseInt(placeholder.dataset.rowIndex, 10);
+    const row = this.virtualRows[rowIndex];
+    if (!row) return;
+
+    placeholder.dataset.populated = 'true';
+
+    if (row.type === 'header') {
+      placeholder.className = 'date-group-header collapsible-header';
+      placeholder.style.height = `${this.urlListHeaderHeight}px`;
+      placeholder.style.boxSizing = 'border-box';
+
+      if (row.isCollapsed) {
+        placeholder.classList.add('collapsed');
+      }
+
+      // Create chevron icon
+      const chevron = document.createElement('span');
+      chevron.className = 'group-chevron';
+      chevron.innerHTML = '&#9662;';
+      placeholder.appendChild(chevron);
+
+      // Add group name
+      const groupName = document.createElement('span');
+      groupName.className = 'group-name';
+      groupName.textContent = row.groupLabel;
+      placeholder.appendChild(groupName);
+
+      // Add count
+      const countSpan = document.createElement('span');
+      countSpan.className = 'group-count';
+      countSpan.textContent = `(${row.itemCount})`;
+      placeholder.appendChild(countSpan);
+
+      // Click handler for collapse/expand
+      const expandedView = document.getElementById('expandedView');
+      placeholder.addEventListener('click', () => {
+        const groupKey = row.groupKey;
+        if (this.collapsedGroups.has(groupKey)) {
+          this.collapsedGroups.delete(groupKey);
+        } else {
+          this.collapsedGroups.add(groupKey);
+        }
+        this.buildVirtualRows(this.currentFilteredUrls);
+        this.renderUrlList(this.currentFilteredUrls, document.getElementById('expandedUrlList'), expandedView);
+      });
+
+      if (this.expandedViewType === 'bookmarks') {
+        placeholder.dataset.folderName = row.groupKey;
+        placeholder.dataset.folderId = row.folderId;
+        placeholder.classList.add('bookmark-folder-header');
+        this.setupFolderDropTarget(placeholder);
+      }
+    } else {
+      // Regular URL item
+      const urlData = row.data;
+      const urlItem = this.createUrlItem(urlData, urlData.domain, urlData.date);
+
+      // Replace placeholder content with URL item content
+      placeholder.className = urlItem.className;
+      placeholder.innerHTML = urlItem.innerHTML;
+      placeholder.style.height = `${this.urlListRowHeight}px`;
+      placeholder.style.boxSizing = 'border-box';
+
+      // Copy event listeners by re-attaching them
+      if (this.expandedViewType === 'bookmarks') {
+        placeholder.draggable = true;
+        placeholder.dataset.bookmarkId = urlData.id;
+        placeholder.dataset.currentFolder = urlData.folder;
+        placeholder.dataset.folderId = urlData.folderId;
+        placeholder.dataset.folderName = urlData.folder;
+        this.setupBookmarkDrag(placeholder, urlData);
+        this.setupUrlItemDropTarget(placeholder);
+      }
+    }
   }
 
   // Build flat list of virtual rows from filtered URLs
@@ -3530,18 +3617,59 @@ class BulletHistory {
     }
     todaySection.appendChild(visitDayRow);
 
-    // Visit Time row
+    // Visit Time(s) row - fetch all visits for today
     const visitTimeRow = document.createElement('div');
     visitTimeRow.className = 'url-display-row';
-    if (urlData.lastVisit) {
-      const lastVisitDate = new Date(urlData.lastVisit);
-      const hours = lastVisitDate.getHours();
-      const minutes = String(lastVisitDate.getMinutes()).padStart(2, '0');
-      const ampm = hours >= 12 ? 'pm' : 'am';
-      const hours12 = hours % 12 || 12;
-      visitTimeRow.innerHTML = `<span class="meta-label">Visit Time:</span> ${hours12}:${minutes}${ampm}`;
-    }
     todaySection.appendChild(visitTimeRow);
+
+    // Async: Get all visits for this URL today
+    if (urlData.url) {
+      chrome.history.getVisits({ url: urlData.url }).then(visits => {
+        // Filter to today's visits
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todayStartMs = todayStart.getTime();
+
+        const todayVisits = visits.filter(v => v.visitTime >= todayStartMs);
+
+        if (todayVisits.length > 0) {
+          // Sort by time (earliest first)
+          todayVisits.sort((a, b) => a.visitTime - b.visitTime);
+
+          // Format each visit time
+          const formatVisitTime = (timestamp) => {
+            const date = new Date(timestamp);
+            const hours = date.getHours();
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            const ampm = hours >= 12 ? 'pm' : 'am';
+            const hours12 = hours % 12 || 12;
+            return `${hours12}:${minutes}${ampm}`;
+          };
+
+          const timeStrings = todayVisits.map(v => formatVisitTime(v.visitTime));
+          const label = todayVisits.length === 1 ? 'Visit Time:' : 'Visit Times:';
+          visitTimeRow.innerHTML = `<span class="meta-label">${label}</span> ${timeStrings.join(', ')}`;
+        } else if (urlData.lastVisit) {
+          // Fallback to last visit if no visits found today
+          const lastVisitDate = new Date(urlData.lastVisit);
+          const hours = lastVisitDate.getHours();
+          const minutes = String(lastVisitDate.getMinutes()).padStart(2, '0');
+          const ampm = hours >= 12 ? 'pm' : 'am';
+          const hours12 = hours % 12 || 12;
+          visitTimeRow.innerHTML = `<span class="meta-label">Visit Time:</span> ${hours12}:${minutes}${ampm}`;
+        }
+      }).catch(() => {
+        // Fallback on error
+        if (urlData.lastVisit) {
+          const lastVisitDate = new Date(urlData.lastVisit);
+          const hours = lastVisitDate.getHours();
+          const minutes = String(lastVisitDate.getMinutes()).padStart(2, '0');
+          const ampm = hours >= 12 ? 'pm' : 'am';
+          const hours12 = hours % 12 || 12;
+          visitTimeRow.innerHTML = `<span class="meta-label">Visit Time:</span> ${hours12}:${minutes}${ampm}`;
+        }
+      });
+    }
 
     // Active Time (today) row
     const activeTodayRow = document.createElement('div');
