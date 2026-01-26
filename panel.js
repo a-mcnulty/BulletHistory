@@ -2424,24 +2424,24 @@ class BulletHistory {
       // Regular URL item
       const urlData = row.data;
       const urlItem = this.createUrlItem(urlData, urlData.domain, urlData.date);
-      urlItem.style.height = `${this.urlListRowHeight}px`;
-      urlItem.style.boxSizing = 'border-box';
-      urlItem.dataset.rowIndex = placeholder.dataset.rowIndex;
-      urlItem.dataset.populated = 'true';
+      placeholder.className = urlItem.className;
+      placeholder.innerHTML = '';  // Clear placeholder
+      while (urlItem.firstChild) {
+        placeholder.appendChild(urlItem.firstChild);  // Move (not copy) children
+      }
+      placeholder.style.height = `${this.urlListRowHeight}px`;
+      placeholder.style.boxSizing = 'border-box';
 
       // For bookmarks view: make items draggable and droppable
       if (this.expandedViewType === 'bookmarks') {
-        urlItem.draggable = true;
-        urlItem.dataset.bookmarkId = urlData.id;
-        urlItem.dataset.currentFolder = urlData.folder;
-        urlItem.dataset.folderId = urlData.folderId;
-        urlItem.dataset.folderName = urlData.folder;
-        this.setupBookmarkDrag(urlItem, urlData);
-        this.setupUrlItemDropTarget(urlItem);
+        placeholder.draggable = true;
+        placeholder.dataset.bookmarkId = urlData.id;
+        placeholder.dataset.currentFolder = urlData.folder;
+        placeholder.dataset.folderId = urlData.folderId;
+        placeholder.dataset.folderName = urlData.folder;
+        this.setupBookmarkDrag(placeholder, urlData);
+        this.setupUrlItemDropTarget(placeholder);
       }
-
-      // Replace placeholder with the actual URL item element
-      placeholder.replaceWith(urlItem);
     }
   }
 
