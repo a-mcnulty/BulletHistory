@@ -3521,14 +3521,16 @@ class BulletHistory {
 
     try {
       const urlObj = new URL(urlData.url);
-      const origin = `${urlObj.protocol}//${urlObj.hostname}`;
-      fallbackUrls.push(
-        fallbackSrc,
-        `${origin}/favicon.ico`,
-        `${origin}/favicon.png`,
-        `${origin}/apple-touch-icon.png`,
-        `https://icons.duckduckgo.com/ip3/${urlObj.hostname}.ico`
-      );
+      fallbackUrls.push(fallbackSrc);
+      if (urlObj.protocol === 'http:' || urlObj.protocol === 'https:') {
+        const origin = `${urlObj.protocol}//${urlObj.hostname}`;
+        fallbackUrls.push(
+          `${origin}/favicon.ico`,
+          `${origin}/favicon.png`,
+          `${origin}/apple-touch-icon.png`
+        );
+      }
+      fallbackUrls.push(`https://icons.duckduckgo.com/ip3/${urlObj.hostname}.ico`);
     } catch (e) {
       fallbackUrls.push(fallbackSrc);
     }
@@ -3712,7 +3714,7 @@ class BulletHistory {
 
     // Total Open Time row
     const totalOpenRow = document.createElement('div');
-    totalOpenRow.className = 'url-display-row url-display-row-open';
+    totalOpenRow.className = 'url-display-row';
     totalsSection.appendChild(totalOpenRow);
 
     urlDisplay.appendChild(totalsSection);
@@ -3880,7 +3882,7 @@ class BulletHistory {
                width="32"
                height="32"
                alt=""
-               onerror="(function(t){const tries=['1','2','3','4','5'];const idx=parseInt(t.dataset.tried||'0');if(idx<tries.length){t.dataset.tried=tries[idx];try{const u=new URL('${urlData.url}');const urls=[u.protocol+'//'+u.hostname+'/favicon.ico',u.protocol+'//'+u.hostname+'/favicon.png',u.protocol+'//'+u.hostname+'/apple-touch-icon.png','https://icons.duckduckgo.com/ip3/'+u.hostname+'.ico',''];t.src=urls[idx]||'';if(!urls[idx])t.style.display='none';}catch(e){t.style.display='none';}}else{t.style.display='none';}})(this)">
+               onerror="(function(t){const tries=['1','2','3','4','5'];const idx=parseInt(t.dataset.tried||'0');if(idx<tries.length){t.dataset.tried=tries[idx];try{const u=new URL('${urlData.url}');const isHttp=u.protocol==='http:'||u.protocol==='https:';const urls=isHttp?[u.protocol+'//'+u.hostname+'/favicon.ico',u.protocol+'//'+u.hostname+'/favicon.png',u.protocol+'//'+u.hostname+'/apple-touch-icon.png','https://icons.duckduckgo.com/ip3/'+u.hostname+'.ico','']:['https://icons.duckduckgo.com/ip3/'+u.hostname+'.ico',''];t.src=urls[idx]||'';if(!urls[idx])t.style.display='none';}catch(e){t.style.display='none';}}else{t.style.display='none';}})(this)">
           <div class="url-preview-title">${urlData.title || 'Untitled'}</div>
         </div>
         <div class="url-preview-url">${urlData.url}</div>
@@ -3931,7 +3933,7 @@ class BulletHistory {
                width="32"
                height="32"
                alt=""
-               onerror="(function(t){const tries=['1','2','3','4','5'];const idx=parseInt(t.dataset.tried||'0');if(idx<tries.length){t.dataset.tried=tries[idx];try{const u=new URL('${urlData.url}');const urls=[u.protocol+'//'+u.hostname+'/favicon.ico',u.protocol+'//'+u.hostname+'/favicon.png',u.protocol+'//'+u.hostname+'/apple-touch-icon.png','https://icons.duckduckgo.com/ip3/'+u.hostname+'.ico',''];t.src=urls[idx]||'';if(!urls[idx])t.style.display='none';}catch(e){t.style.display='none';}}else{t.style.display='none';}})(this)">
+               onerror="(function(t){const tries=['1','2','3','4','5'];const idx=parseInt(t.dataset.tried||'0');if(idx<tries.length){t.dataset.tried=tries[idx];try{const u=new URL('${urlData.url}');const isHttp=u.protocol==='http:'||u.protocol==='https:';const urls=isHttp?[u.protocol+'//'+u.hostname+'/favicon.ico',u.protocol+'//'+u.hostname+'/favicon.png',u.protocol+'//'+u.hostname+'/apple-touch-icon.png','https://icons.duckduckgo.com/ip3/'+u.hostname+'.ico','']:['https://icons.duckduckgo.com/ip3/'+u.hostname+'.ico',''];t.src=urls[idx]||'';if(!urls[idx])t.style.display='none';}catch(e){t.style.display='none';}}else{t.style.display='none';}})(this)">
           <div class="url-preview-title">${ogData.title || urlData.title || 'Untitled'}</div>
         </div>
         ${descriptionHtml}
