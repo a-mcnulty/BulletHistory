@@ -107,29 +107,25 @@ BulletHistory.prototype.showBookmarks = async function() {
       collectBookmarks(bookmarkTree);
 
       // Fetch actual visit counts from browser history for each bookmark
+      // Optimized: use faviconCache instead of extra history.search per bookmark
       const fetchVisitCounts = async () => {
         const historyPromises = bookmarks.map(bookmark => {
           return new Promise((resolve) => {
-            // Use exact URL match instead of text search to avoid variations
+            // Use exact URL match to get visit count
             chrome.history.getVisits({ url: bookmark.url }, (visits) => {
               if (visits && visits.length > 0) {
-                // Count unique visits (visits array contains all visit times)
                 bookmark.visitCount = visits.length;
                 bookmark.lastVisit = Math.max(...visits.map(v => v.visitTime));
-
-                // Also fetch favicon from history search
-                chrome.history.search({ text: bookmark.url, maxResults: 1 }, (results) => {
-                  if (results && results.length > 0) {
-                    bookmark.favIconUrl = results[0].favIconUrl;
-                  }
-                  resolve();
-                });
               } else {
-                // Not in history - never visited
                 bookmark.visitCount = 0;
                 bookmark.lastVisit = bookmark.dateAdded;
-                resolve();
               }
+              // Use cached favicon instead of extra API call
+              const cachedFavicon = this.faviconCache[bookmark.url]?.favicon;
+              if (cachedFavicon) {
+                bookmark.favIconUrl = cachedFavicon;
+              }
+              resolve();
             });
           });
         });
@@ -244,18 +240,21 @@ BulletHistory.prototype.showRecentlyClosed = function() {
       });
 
       // Fetch actual visit counts from browser history for each closed tab
+      // Already optimized with Promise.all for parallelization
       const fetchVisitCounts = async () => {
         const historyPromises = closedUrls.map(closedTab => {
           return new Promise((resolve) => {
-            // Use exact URL match to get visit count
             chrome.history.getVisits({ url: closedTab.url }, (visits) => {
               if (visits && visits.length > 0) {
-                // Count unique visits
                 closedTab.visitCount = visits.length;
                 closedTab.lastVisit = Math.max(...visits.map(v => v.visitTime));
               } else {
-                // Not in history
                 closedTab.visitCount = 0;
+              }
+              // Use cached favicon if available
+              const cachedFavicon = this.faviconCache[closedTab.url]?.favicon;
+              if (cachedFavicon && !closedTab.favIconUrl) {
+                closedTab.favIconUrl = cachedFavicon;
               }
               resolve();
             });

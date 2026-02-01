@@ -633,25 +633,25 @@ BulletHistory.prototype.renderCalendarEventDots = function(eventColumn, enabledE
     eventColumn.addEventListener('mouseenter', (e) => {
       const tooltip = document.getElementById('tooltip');
 
-      // Build tooltip content with all events using HTML
-      let tooltipHTML = '';
-      sortedEvents.forEach((event, idx) => {
+      // Build tooltip content with all events using array join (faster than += concatenation)
+      const tooltipParts = [];
+      for (const event of sortedEvents) {
         const color = event.backgroundColor || '#039BE5';
         const dotStyle = `width: 8px; height: 8px; border-radius: 50%; background-color: ${color}; flex-shrink: 0; margin-top: 4px;`;
         const eventStyle = `display: flex; gap: 8px; margin-bottom: 8px;`;
 
         if (event.isAllDay) {
-          tooltipHTML += `<div style="${eventStyle}"><div style="${dotStyle}"></div><div>All day<br>${event.summary}</div></div>`;
+          tooltipParts.push(`<div style="${eventStyle}"><div style="${dotStyle}"></div><div>All day<br>${event.summary}</div></div>`);
         } else {
           const start = new Date(event.start.dateTime);
           const end = new Date(event.end.dateTime);
           const startTime = start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
           const endTime = end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-          tooltipHTML += `<div style="${eventStyle}"><div style="${dotStyle}"></div><div>${startTime}-${endTime}<br>${event.summary}</div></div>`;
+          tooltipParts.push(`<div style="${eventStyle}"><div style="${dotStyle}"></div><div>${startTime}-${endTime}<br>${event.summary}</div></div>`);
         }
-      });
+      }
 
-      tooltip.innerHTML = tooltipHTML;
+      tooltip.innerHTML = tooltipParts.join('');
       tooltip.style.whiteSpace = 'normal';
       tooltip.style.maxWidth = '200px';
       tooltip.classList.add('visible');
@@ -672,15 +672,21 @@ BulletHistory.prototype.renderCalendarEventDots = function(eventColumn, enabledE
       delete eventColumn.dataset.tooltipActive;
     });
 
-    // Add scroll handler to reposition tooltip
+    // Add scroll handler to reposition tooltip (tracked for cleanup)
     const dateHeaderScroll = document.getElementById('dateHeader');
+    const cellGridWrapper = document.getElementById('cellGridWrapper');
     const scrollHandler = () => {
       if (eventColumn.dataset.tooltipActive === 'true') {
         positionTooltip();
       }
     };
+    // Store handlers for cleanup on next render
+    this.calendarScrollHandlers.push(
+      { element: dateHeaderScroll, handler: scrollHandler },
+      { element: cellGridWrapper, handler: scrollHandler }
+    );
     dateHeaderScroll.addEventListener('scroll', scrollHandler);
-    document.getElementById('cellGridWrapper').addEventListener('scroll', scrollHandler);
+    cellGridWrapper.addEventListener('scroll', scrollHandler);
 
     // Calculate total rows needed (max 10 rows = 20 events)
     const totalRows = Math.min(Math.ceil(enabledEvents.length / 2), 10);

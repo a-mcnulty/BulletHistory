@@ -3,6 +3,16 @@
 BulletHistory.prototype.renderDateHeader = function() {
     console.log('renderDateHeader called, viewMode:', this.viewMode);
 
+    // Cleanup old calendar scroll handlers to prevent accumulation
+    if (this.calendarScrollHandlers && this.calendarScrollHandlers.length > 0) {
+      for (const { element, handler } of this.calendarScrollHandlers) {
+        if (element) {
+          element.removeEventListener('scroll', handler);
+        }
+      }
+      this.calendarScrollHandlers = [];
+    }
+
     // Check if we're in hour view mode
     if (this.viewMode === 'hour') {
       this.renderHourHeader();
@@ -155,12 +165,7 @@ BulletHistory.prototype.renderHourHeader = function() {
     dayRow.innerHTML = '';
 
     // Get current hour string for highlighting
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    const currentHour = String(now.getHours()).padStart(2, '0');
-    const currentHourStr = `${year}-${month}-${day}T${currentHour}`;
+    const currentHourStr = DateUtils.getCurrentHourISO();
 
     let currentDay = '';
     let daySpan = 0;
@@ -185,17 +190,7 @@ BulletHistory.prototype.renderHourHeader = function() {
       const weekdayName = date.toLocaleDateString('en-US', { weekday: 'long' });
       const dayNum = date.getDate();
 
-      // Add ordinal suffix (st, nd, rd, th)
-      const getOrdinalSuffix = (day) => {
-        if (day > 3 && day < 21) return 'th';
-        switch (day % 10) {
-          case 1: return 'st';
-          case 2: return 'nd';
-          case 3: return 'rd';
-          default: return 'th';
-        }
-      };
-      const weekdayDay = `${weekdayName} ${dayNum}${getOrdinalSuffix(dayNum)}`;
+      const weekdayDay = `${weekdayName} ${dayNum}${DateUtils.getOrdinalSuffix(dayNum)}`;
 
       // Combine for tracking day changes (include datePart for click handler)
       const dayBanner = `${monthYear}|${weekdayDay}|${datePart}`;
@@ -536,6 +531,35 @@ BulletHistory.prototype.renderVirtualRows = function(startRow, endRow, startCol,
     tldColumn.appendChild(tldSpacer);
     cellGrid.appendChild(cellSpacer);
 
+    // Clear column cells map and hovered elements for fresh render
+    this.columnCells.clear();
+    this.hoveredElements.clear();
+
+    // Pre-compute maxCount for all visible domains (avoid recalculating per row)
+    this.maxCountCache.clear();
+    for (let rowIndex = startRow; rowIndex < endRow; rowIndex++) {
+      const domain = this.sortedDomains[rowIndex];
+      if (!domain || domain.trim().length === 0 || this.maxCountCache.has(domain)) continue;
+
+      let maxCount = 0;
+      if (this.viewMode === 'hour') {
+        if (this.hourlyData[domain]) {
+          for (const hourStr of Object.keys(this.hourlyData[domain])) {
+            const count = this.getUniqueUrlCountForCell(domain, hourStr, true);
+            if (count > maxCount) maxCount = count;
+          }
+        }
+      } else {
+        if (this.historyData[domain]) {
+          for (const dateStr of Object.keys(this.historyData[domain].days)) {
+            const count = this.getUniqueUrlCountForCell(domain, dateStr, false);
+            if (count > maxCount) maxCount = count;
+          }
+        }
+      }
+      this.maxCountCache.set(domain, maxCount || 1); // At least 1 to avoid division by zero
+    }
+
     // Get today's date string for comparison (day view)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -543,12 +567,7 @@ BulletHistory.prototype.renderVirtualRows = function(startRow, endRow, startCol,
     const todayIndex = this.dates.indexOf(todayStr);
 
     // Get current hour string for comparison (hour view)
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    const currentHour = String(now.getHours()).padStart(2, '0');
-    const currentHourStr = `${year}-${month}-${day}T${currentHour}`;
+    const currentHourStr = DateUtils.getCurrentHourISO();
     const currentHourIndex = this.hours.indexOf(currentHourStr);
 
     // Render visible rows
@@ -556,26 +575,8 @@ BulletHistory.prototype.renderVirtualRows = function(startRow, endRow, startCol,
       const domain = this.sortedDomains[rowIndex];
       if (!domain || domain.trim().length === 0) continue;
 
-      // Find max unique URL count for THIS DOMAIN (row-normalized)
-      // Based on time tracking data (tabs open), not visit count
-      let maxCount = 0;
-      if (this.viewMode === 'hour') {
-        // In hour view, find max hourly unique URL count
-        if (this.hourlyData[domain]) {
-          for (const hourStr of Object.keys(this.hourlyData[domain])) {
-            const count = this.getUniqueUrlCountForCell(domain, hourStr, true);
-            maxCount = Math.max(maxCount, count);
-          }
-        }
-      } else {
-        // In day view, find max daily unique URL count
-        for (const dateStr of Object.keys(this.historyData[domain].days)) {
-          const count = this.getUniqueUrlCountForCell(domain, dateStr, false);
-          maxCount = Math.max(maxCount, count);
-        }
-      }
-      // Ensure maxCount is at least 1 to avoid division by zero
-      if (maxCount === 0) maxCount = 1;
+      // Use pre-computed maxCount from cache
+      const maxCount = this.maxCountCache.get(domain) || 1;
 
       // TLD label
       const tldRow = document.createElement('div');
@@ -589,19 +590,8 @@ BulletHistory.prototype.renderVirtualRows = function(startRow, endRow, startCol,
       const favicon = document.createElement('img');
       favicon.className = 'tld-favicon';
 
-      // Try to find a cached favicon for this domain from any URL
-      let cachedTldFavicon = null;
-      for (const [url, data] of Object.entries(this.faviconCache)) {
-        try {
-          const urlObj = new URL(url);
-          if (urlObj.hostname === domain) {
-            cachedTldFavicon = data.favicon;
-            break;
-          }
-        } catch (e) {
-          // Invalid URL in cache, skip
-        }
-      }
+      // Use indexed faviconsByDomain for O(1) lookup instead of O(n) iteration
+      const cachedTldFavicon = this.faviconsByDomain.get(domain);
 
       // Use cached favicon if available, otherwise fall back to Google's service
       const tldFaviconSrc = `https://www.google.com/s2/favicons?domain=https://${domain}&sz=16`;
@@ -707,6 +697,13 @@ BulletHistory.prototype.renderVirtualRows = function(startRow, endRow, startCol,
         cell.style.position = 'absolute';
         cell.style.left = `${colIndex * this.colWidth + 8}px`; // Add left padding
 
+        // Add cell to columnCells map for fast column highlighting (use string key for consistency with dataset)
+        const colKey = String(colIndex);
+        if (!this.columnCells.has(colKey)) {
+          this.columnCells.set(colKey, new Set());
+        }
+        this.columnCells.get(colKey).add(cell);
+
         // Check if this is today's column (day view) or current hour (hour view)
         if (this.viewMode === 'day' && columnKey === todayStr) {
           cell.classList.add('col-today');
@@ -751,16 +748,12 @@ BulletHistory.prototype.setupScrollSync = function() {
     let isGridScrolling = false;
     let isTldScrolling = false;
 
-    // Helper function to clear all hover states
+    // Helper function to clear all hover states - optimized to only clear tracked elements
     const clearAllHoverStates = () => {
-      // Clear column hover states
-      document.querySelectorAll('.col-hover').forEach(el => {
-        el.classList.remove('col-hover');
-      });
-      // Clear row hover states
-      document.querySelectorAll('.row-hover').forEach(el => {
-        el.classList.remove('row-hover');
-      });
+      for (const el of this.hoveredElements) {
+        el.classList.remove('col-hover', 'row-hover');
+      }
+      this.hoveredElements.clear();
     };
 
     // Sync horizontal scroll: grid -> header
@@ -867,10 +860,12 @@ BulletHistory.prototype.setupRowHover = function() {
         const rowIndex = e.target.dataset.rowIndex;
         // Highlight the TLD row
         e.target.classList.add('row-hover');
+        this.hoveredElements.add(e.target);
         // Highlight the corresponding cell row
         const cellRow = cellGrid.querySelector(`.cell-row[data-row-index="${rowIndex}"]`);
         if (cellRow) {
           cellRow.classList.add('row-hover');
+          this.hoveredElements.add(cellRow);
         }
       }
     });
@@ -880,10 +875,12 @@ BulletHistory.prototype.setupRowHover = function() {
         const rowIndex = e.target.dataset.rowIndex;
         // Remove highlight from TLD row
         e.target.classList.remove('row-hover');
+        this.hoveredElements.delete(e.target);
         // Remove highlight from cell row
         const cellRow = cellGrid.querySelector(`.cell-row[data-row-index="${rowIndex}"]`);
         if (cellRow) {
           cellRow.classList.remove('row-hover');
+          this.hoveredElements.delete(cellRow);
         }
       }
     });
@@ -898,24 +895,28 @@ BulletHistory.prototype.setupRowHover = function() {
         const tldRow = tldColumn.querySelector(`.tld-row[data-row-index="${rowIndex}"]`);
         if (tldRow) {
           tldRow.classList.add('row-hover');
+          this.hoveredElements.add(tldRow);
         }
 
         // Highlight the cell row
         const cellRow = cellGrid.querySelector(`.cell-row[data-row-index="${rowIndex}"]`);
         if (cellRow) {
           cellRow.classList.add('row-hover');
+          this.hoveredElements.add(cellRow);
         }
 
         // Highlight the weekday cell
         const weekdayCell = weekdayRow.querySelector(`.weekday-cell[data-col-index="${colIndex}"]`);
         if (weekdayCell) {
           weekdayCell.classList.add('col-hover');
+          this.hoveredElements.add(weekdayCell);
         }
 
         // Highlight the day cell
         const dayCell = dayRow.querySelector(`.day-cell[data-col-index="${colIndex}"]`);
         if (dayCell) {
           dayCell.classList.add('col-hover');
+          this.hoveredElements.add(dayCell);
         }
 
         // Highlight the calendar event column
@@ -924,12 +925,18 @@ BulletHistory.prototype.setupRowHover = function() {
           const eventColumns = calendarEventsRow.children;
           if (eventColumns[colIndex]) {
             eventColumns[colIndex].classList.add('col-hover');
+            this.hoveredElements.add(eventColumns[colIndex]);
           }
         }
 
-        // Highlight all cells in the column
-        const columnCells = cellGrid.querySelectorAll(`.cell[data-col-index="${colIndex}"]`);
-        columnCells.forEach(cell => cell.classList.add('col-hover'));
+        // Highlight all cells in the column - use cached columnCells map for O(1) lookup
+        const columnCellSet = this.columnCells.get(colIndex);
+        if (columnCellSet) {
+          for (const cell of columnCellSet) {
+            cell.classList.add('col-hover');
+            this.hoveredElements.add(cell);
+          }
+        }
       }
     });
 
@@ -942,24 +949,28 @@ BulletHistory.prototype.setupRowHover = function() {
         const tldRow = tldColumn.querySelector(`.tld-row[data-row-index="${rowIndex}"]`);
         if (tldRow) {
           tldRow.classList.remove('row-hover');
+          this.hoveredElements.delete(tldRow);
         }
 
         // Remove highlight from cell row
         const cellRow = cellGrid.querySelector(`.cell-row[data-row-index="${rowIndex}"]`);
         if (cellRow) {
           cellRow.classList.remove('row-hover');
+          this.hoveredElements.delete(cellRow);
         }
 
         // Remove highlight from weekday cell
         const weekdayCell = weekdayRow.querySelector(`.weekday-cell[data-col-index="${colIndex}"]`);
         if (weekdayCell) {
           weekdayCell.classList.remove('col-hover');
+          this.hoveredElements.delete(weekdayCell);
         }
 
         // Remove highlight from day cell
         const dayCell = dayRow.querySelector(`.day-cell[data-col-index="${colIndex}"]`);
         if (dayCell) {
           dayCell.classList.remove('col-hover');
+          this.hoveredElements.delete(dayCell);
         }
 
         // Remove highlight from calendar event column
@@ -968,12 +979,18 @@ BulletHistory.prototype.setupRowHover = function() {
           const eventColumns = calendarEventsRow.children;
           if (eventColumns[colIndex]) {
             eventColumns[colIndex].classList.remove('col-hover');
+            this.hoveredElements.delete(eventColumns[colIndex]);
           }
         }
 
-        // Remove highlight from column cells
-        const columnCells = cellGrid.querySelectorAll(`.cell[data-col-index="${colIndex}"]`);
-        columnCells.forEach(cell => cell.classList.remove('col-hover'));
+        // Remove highlight from column cells - use cached columnCells map
+        const columnCellSet = this.columnCells.get(colIndex);
+        if (columnCellSet) {
+          for (const cell of columnCellSet) {
+            cell.classList.remove('col-hover');
+            this.hoveredElements.delete(cell);
+          }
+        }
       }
     });
 };
@@ -985,18 +1002,20 @@ BulletHistory.prototype.setupColumnHeaderHover = function() {
     const calendarEventsRow = document.getElementById('calendarEventsRow');
     const cellGrid = document.getElementById('cellGrid');
 
-    // Helper function to highlight column
+    // Helper function to highlight column - optimized to use columnCells map
     const highlightColumn = (colIndex) => {
       // Highlight the weekday cell
       const weekdayCell = weekdayRow.querySelector(`.weekday-cell[data-col-index="${colIndex}"]`);
       if (weekdayCell) {
         weekdayCell.classList.add('col-hover');
+        this.hoveredElements.add(weekdayCell);
       }
 
       // Highlight the day cell
       const dayCell = dayRow.querySelector(`.day-cell[data-col-index="${colIndex}"]`);
       if (dayCell) {
         dayCell.classList.add('col-hover');
+        this.hoveredElements.add(dayCell);
       }
 
       // Highlight the calendar event column
@@ -1004,26 +1023,34 @@ BulletHistory.prototype.setupColumnHeaderHover = function() {
         const eventColumns = calendarEventsRow.children;
         if (eventColumns[colIndex]) {
           eventColumns[colIndex].classList.add('col-hover');
+          this.hoveredElements.add(eventColumns[colIndex]);
         }
       }
 
-      // Highlight all cells in the column
-      const columnCells = cellGrid.querySelectorAll(`.cell[data-col-index="${colIndex}"]`);
-      columnCells.forEach(cell => cell.classList.add('col-hover'));
+      // Highlight all cells in the column - use cached columnCells map for O(1) lookup
+      const columnCellSet = this.columnCells.get(colIndex);
+      if (columnCellSet) {
+        for (const cell of columnCellSet) {
+          cell.classList.add('col-hover');
+          this.hoveredElements.add(cell);
+        }
+      }
     };
 
-    // Helper function to remove column highlight
+    // Helper function to remove column highlight - optimized to use columnCells map
     const removeColumnHighlight = (colIndex) => {
       // Remove highlight from weekday cell
       const weekdayCell = weekdayRow.querySelector(`.weekday-cell[data-col-index="${colIndex}"]`);
       if (weekdayCell) {
         weekdayCell.classList.remove('col-hover');
+        this.hoveredElements.delete(weekdayCell);
       }
 
       // Remove highlight from day cell
       const dayCell = dayRow.querySelector(`.day-cell[data-col-index="${colIndex}"]`);
       if (dayCell) {
         dayCell.classList.remove('col-hover');
+        this.hoveredElements.delete(dayCell);
       }
 
       // Remove highlight from calendar event column
@@ -1031,12 +1058,18 @@ BulletHistory.prototype.setupColumnHeaderHover = function() {
         const eventColumns = calendarEventsRow.children;
         if (eventColumns[colIndex]) {
           eventColumns[colIndex].classList.remove('col-hover');
+          this.hoveredElements.delete(eventColumns[colIndex]);
         }
       }
 
-      // Remove highlight from column cells
-      const columnCells = cellGrid.querySelectorAll(`.cell[data-col-index="${colIndex}"]`);
-      columnCells.forEach(cell => cell.classList.remove('col-hover'));
+      // Remove highlight from column cells - use cached columnCells map
+      const columnCellSet = this.columnCells.get(colIndex);
+      if (columnCellSet) {
+        for (const cell of columnCellSet) {
+          cell.classList.remove('col-hover');
+          this.hoveredElements.delete(cell);
+        }
+      }
     };
 
     // Day cell hover

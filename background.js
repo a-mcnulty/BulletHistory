@@ -9,6 +9,35 @@ chrome.sidePanel
 const MAX_CLOSED_TABS = 50;
 const activeTabs = new Map();
 
+// In-memory openTabs cache with debounced storage writes
+let openTabsInMemory = {};
+let openTabsDirty = false;
+let openTabsWriteTimer = null;
+const OPEN_TABS_WRITE_DELAY = 5000; // 5 seconds
+
+// Debounced write function for openTabs
+function scheduleOpenTabsWrite() {
+  openTabsDirty = true;
+  if (openTabsWriteTimer) return; // Already scheduled
+  openTabsWriteTimer = setTimeout(async () => {
+    openTabsWriteTimer = null;
+    if (openTabsDirty) {
+      openTabsDirty = false;
+      await chrome.storage.local.set({ openTabs: openTabsInMemory });
+    }
+  }, OPEN_TABS_WRITE_DELAY);
+}
+
+// Immediate write for critical operations (like tab close)
+async function flushOpenTabs() {
+  if (openTabsWriteTimer) {
+    clearTimeout(openTabsWriteTimer);
+    openTabsWriteTimer = null;
+  }
+  openTabsDirty = false;
+  await chrome.storage.local.set({ openTabs: openTabsInMemory });
+}
+
 // ===== URL TIME TRACKING =====
 const MAX_DATA_AGE_DAYS = 90;
 let currentActiveTabId = null;
@@ -19,6 +48,11 @@ const openTabsStartTime = {};  // { tabId: timestamp } - tracks open time for AL
 let timeTrackingInitialized = false;
 let initPromiseResolve = null;
 const initPromise = new Promise(resolve => { initPromiseResolve = resolve; });
+
+// In-memory time data accumulator for batched writes
+// Structure: { "urlHash:dateStr": { a: activeSeconds, o: openSeconds, h: Set<hour> } }
+const pendingTimeUpdates = {};
+let pendingUrlHashes = {}; // New URL hash mappings to add
 
 // djb2 hash function, returns 8-char hex string
 function hashUrl(url) {
@@ -50,7 +84,8 @@ function getCurrentHour() {
   return new Date().getHours();
 }
 
-async function addTimeToUrl(url, timeType, seconds) {
+// Accumulate time in memory (no I/O) - will be flushed periodically
+function addTimeToUrl(url, timeType, seconds) {
   if (shouldSkipUrl(url) || seconds <= 0) return;
 
   const urlHash = hashUrl(url);
@@ -58,48 +93,79 @@ async function addTimeToUrl(url, timeType, seconds) {
   const key = `${urlHash}:${dateStr}`;
   const currentHour = getCurrentHour();
 
+  // Store URL hash mapping
+  if (!pendingUrlHashes[urlHash]) {
+    pendingUrlHashes[urlHash] = url;
+  }
+
+  // Initialize pending update if needed
+  if (!pendingTimeUpdates[key]) {
+    pendingTimeUpdates[key] = { a: 0, o: 0, h: new Set() };
+  }
+
+  // Accumulate time
+  if (timeType === 'active') {
+    pendingTimeUpdates[key].a += seconds;
+  } else if (timeType === 'open') {
+    pendingTimeUpdates[key].o += seconds;
+  }
+
+  // Track hour
+  pendingTimeUpdates[key].h.add(currentHour);
+}
+
+// Flush accumulated time data to storage
+async function flushTimeData() {
+  // Check if there's anything to flush
+  const updateKeys = Object.keys(pendingTimeUpdates);
+  const hashKeys = Object.keys(pendingUrlHashes);
+  if (updateKeys.length === 0 && hashKeys.length === 0) return;
+
   try {
     const result = await chrome.storage.local.get(['urlTimeData', 'urlHashes']);
     const urlTimeData = result.urlTimeData || {};
     const urlHashes = result.urlHashes || {};
 
-    // Store URL in separate hash lookup (once per unique URL)
-    if (!urlHashes[urlHash]) {
-      urlHashes[urlHash] = url;
+    // Merge pending URL hashes
+    for (const [hash, url] of Object.entries(pendingUrlHashes)) {
+      if (!urlHashes[hash]) {
+        urlHashes[hash] = url;
+      }
     }
 
-    if (!urlTimeData[key]) {
-      urlTimeData[key] = {
-        a: 0,  // activeSeconds (when tab is focused)
-        o: 0,  // openSeconds (total time tab is open)
-        h: []  // hours with tab open (0-23)
-      };
+    // Merge pending time updates
+    for (const [key, update] of Object.entries(pendingTimeUpdates)) {
+      if (!urlTimeData[key]) {
+        urlTimeData[key] = { a: 0, o: 0, h: [] };
+      }
+
+      urlTimeData[key].a += update.a;
+      urlTimeData[key].o += update.o;
+
+      // Merge hours (convert Set to array and merge)
+      const existingHours = new Set(urlTimeData[key].h || []);
+      for (const hour of update.h) {
+        existingHours.add(hour);
+      }
+      urlTimeData[key].h = Array.from(existingHours).sort((a, b) => a - b);
     }
 
-    // Ensure h array exists for older entries
-    if (!urlTimeData[key].h) {
-      urlTimeData[key].h = [];
-    }
-
-    if (timeType === 'active') {
-      urlTimeData[key].a += seconds;
-    } else if (timeType === 'open') {
-      urlTimeData[key].o += seconds;
-    }
-
-    // Add current hour to hours array if not already present
-    if (!urlTimeData[key].h.includes(currentHour)) {
-      urlTimeData[key].h.push(currentHour);
-      urlTimeData[key].h.sort((a, b) => a - b);
-    }
-
+    // Write merged data back to storage
     await chrome.storage.local.set({ urlTimeData, urlHashes });
+
+    // Clear pending updates
+    for (const key of updateKeys) {
+      delete pendingTimeUpdates[key];
+    }
+    for (const key of hashKeys) {
+      delete pendingUrlHashes[key];
+    }
   } catch (e) {
-    console.warn('Failed to add time to URL:', e);
+    console.warn('Failed to flush time data:', e);
   }
 }
 
-async function finalizeActiveTabTime() {
+function finalizeActiveTabTime() {
   if (!currentActiveUrl || !lastActiveTimestamp || !windowFocused) return;
 
   const now = Date.now();
@@ -107,14 +173,14 @@ async function finalizeActiveTabTime() {
 
   if (elapsedSeconds > 0) {
     // Active time contributes to both 'a' (active) AND 'o' (open)
-    await addTimeToUrl(currentActiveUrl, 'active', elapsedSeconds);
-    await addTimeToUrl(currentActiveUrl, 'open', elapsedSeconds);
+    addTimeToUrl(currentActiveUrl, 'active', elapsedSeconds);
+    addTimeToUrl(currentActiveUrl, 'open', elapsedSeconds);
   }
 
   lastActiveTimestamp = now;
 }
 
-async function finalizeOpenTime(tabId) {
+function finalizeOpenTime(tabId) {
   const startTime = openTabsStartTime[tabId];
   if (!startTime) return;
 
@@ -128,13 +194,13 @@ async function finalizeOpenTime(tabId) {
   const elapsedSeconds = Math.floor((now - startTime) / 1000);
 
   if (elapsedSeconds > 0) {
-    await addTimeToUrl(tabInfo.url, 'open', elapsedSeconds);
+    addTimeToUrl(tabInfo.url, 'open', elapsedSeconds);
   }
 
   delete openTabsStartTime[tabId];
 }
 
-async function updateOpenTracking(newActiveTabId) {
+function updateOpenTracking(newActiveTabId) {
   const now = Date.now();
 
   // Start open tracking for the previously active tab (if it's still open)
@@ -146,16 +212,16 @@ async function updateOpenTracking(newActiveTabId) {
 
   // Stop open tracking for the new active tab (its open time is tracked via active time)
   if (newActiveTabId !== null && openTabsStartTime[newActiveTabId]) {
-    await finalizeOpenTime(newActiveTabId);
+    finalizeOpenTime(newActiveTabId);
   }
 }
 
-async function startActiveTracking(tabId, url) {
-  // Finalize previous active time
-  await finalizeActiveTabTime();
+function startActiveTracking(tabId, url) {
+  // Finalize previous active time (accumulates in memory)
+  finalizeActiveTabTime();
 
   // Update open tracking
-  await updateOpenTracking(tabId);
+  updateOpenTracking(tabId);
 
   // Start new active tracking
   currentActiveTabId = tabId;
@@ -256,11 +322,9 @@ chrome.tabs.onCreated.addListener(async (tab) => {
     // Cache favicon
     await cacheFavicon(tab.url, tab.favIconUrl);
 
-    // Persist to storage
-    const result = await chrome.storage.local.get(['openTabs']);
-    const openTabs = result.openTabs || {};
-    openTabs[tab.id] = tabInfo;
-    await chrome.storage.local.set({ openTabs });
+    // Update in-memory storage (debounced write to disk)
+    openTabsInMemory[tab.id] = tabInfo;
+    scheduleOpenTabsWrite();
 
     // Notify panel of tab change
     chrome.runtime.sendMessage({
@@ -289,24 +353,24 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (changeInfo.url && oldUrl !== changeInfo.url) {
       if (tabId === currentActiveTabId) {
         // Active tab URL changed - finalize time for old URL, start tracking new URL
-        await finalizeActiveTabTime();
+        finalizeActiveTabTime();
         currentActiveUrl = changeInfo.url;
         lastActiveTimestamp = windowFocused ? Date.now() : null;
       } else if (openTabsStartTime[tabId]) {
         // Background tab URL changed - finalize open time for old URL, restart open tracking
-        await finalizeOpenTime(tabId);
+        finalizeOpenTime(tabId);
         openTabsStartTime[tabId] = Date.now();
       }
     }
 
-    // Cache favicon
-    await cacheFavicon(tab.url, tab.favIconUrl);
+    // Cache favicon (only when favicon actually changes to reduce writes)
+    if (changeInfo.favIconUrl) {
+      await cacheFavicon(tab.url, tab.favIconUrl);
+    }
 
-    // Persist to storage
-    const result = await chrome.storage.local.get(['openTabs']);
-    const openTabs = result.openTabs || {};
-    openTabs[tabId] = tabInfo;
-    await chrome.storage.local.set({ openTabs });
+    // Update in-memory storage (debounced write to disk)
+    openTabsInMemory[tabId] = tabInfo;
+    scheduleOpenTabsWrite();
 
     // Notify panel of tab change
     chrome.runtime.sendMessage({
@@ -318,14 +382,14 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
-  // Finalize time tracking for this tab before removing
+  // Finalize time tracking for this tab before removing (accumulates in memory)
   if (tabId === currentActiveTabId) {
-    await finalizeActiveTabTime();
+    finalizeActiveTabTime();
     currentActiveTabId = null;
     currentActiveUrl = null;
     lastActiveTimestamp = null;
   } else if (openTabsStartTime[tabId]) {
-    await finalizeOpenTime(tabId);
+    finalizeOpenTime(tabId);
   }
 
   // Get the tab data we stored
@@ -335,9 +399,14 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     return;
   }
 
+  // Clean up from in-memory storage
+  activeTabs.delete(tabId);
+  delete openTabsInMemory[tabId];
+
   // Don't track when whole window is closing
   if (removeInfo.isWindowClosing) {
-    activeTabs.delete(tabId);
+    // Still flush openTabs to persist the removal
+    await flushOpenTabs();
     return;
   }
 
@@ -358,17 +427,16 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     closedTabs.length = MAX_CLOSED_TABS;
   }
 
-  // Save back to storage
-  await chrome.storage.local.set({ closedTabs });
-
-  // Clean up the active tabs map and storage
-  activeTabs.delete(tabId);
-
-  // Remove from openTabs storage
-  const openTabsResult = await chrome.storage.local.get(['openTabs']);
-  const openTabs = openTabsResult.openTabs || {};
-  delete openTabs[tabId];
-  await chrome.storage.local.set({ openTabs });
+  // Save closedTabs and flush openTabs in a single batch write
+  await chrome.storage.local.set({
+    closedTabs,
+    openTabs: openTabsInMemory
+  });
+  openTabsDirty = false;
+  if (openTabsWriteTimer) {
+    clearTimeout(openTabsWriteTimer);
+    openTabsWriteTimer = null;
+  }
 
   // Notify panel of tab change
   chrome.runtime.sendMessage({
@@ -384,7 +452,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
   try {
     const tab = await chrome.tabs.get(tabId);
     if (tab && tab.url) {
-      await startActiveTracking(tabId, tab.url);
+      startActiveTracking(tabId, tab.url);
     }
   } catch (e) {
     // Tab might not exist anymore
@@ -396,7 +464,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
 chrome.windows.onFocusChanged.addListener(async (windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) {
     // Browser lost focus - all tabs are now "background"
-    await finalizeActiveTabTime();
+    finalizeActiveTabTime();
     windowFocused = false;
     lastActiveTimestamp = null;
 
@@ -412,7 +480,7 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
     // Stop open tracking and resume active tracking for current tab
     if (currentActiveTabId !== null) {
       if (openTabsStartTime[currentActiveTabId]) {
-        await finalizeOpenTime(currentActiveTabId);
+        finalizeOpenTime(currentActiveTabId);
       }
       lastActiveTimestamp = Date.now();
     }
@@ -422,7 +490,7 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
       try {
         const [activeTab] = await chrome.tabs.query({ active: true, windowId: windowId });
         if (activeTab && activeTab.url) {
-          await startActiveTracking(activeTab.id, activeTab.url);
+          startActiveTracking(activeTab.id, activeTab.url);
         }
       } catch (e) {
         console.warn('Failed to get active tab on focus:', e);
@@ -436,7 +504,6 @@ chrome.storage.local.get(['openTabs'], (result) => {
   const storedTabs = result.openTabs || {};
 
   chrome.tabs.query({}, async (tabs) => {
-    const openTabs = {};
     let activeTab = null;
 
     tabs.forEach(tab => {
@@ -448,7 +515,7 @@ chrome.storage.local.get(['openTabs'], (result) => {
           openedAt: storedTabs[tab.id]?.openedAt || Date.now() // Use stored time or current time
         };
         activeTabs.set(tab.id, tabInfo);
-        openTabs[tab.id] = tabInfo;
+        openTabsInMemory[tab.id] = tabInfo;
 
         // Track the active tab
         if (tab.active) {
@@ -458,7 +525,7 @@ chrome.storage.local.get(['openTabs'], (result) => {
     });
 
     // Save updated openTabs to storage
-    await chrome.storage.local.set({ openTabs });
+    await chrome.storage.local.set({ openTabs: openTabsInMemory });
 
     // Initialize time tracking
     if (activeTab && activeTab.url && !shouldSkipUrl(activeTab.url)) {
@@ -514,17 +581,19 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     await syncCalendarEvents();
   } else if (alarm.name === URL_TIME_SAVE_ALARM) {
     // Periodic save of active and open time
-    await finalizeActiveTabTime();
+    finalizeActiveTabTime(); // Accumulates in memory (synchronous)
     // Finalize all background tabs' open time and restart their tracking
     const now = Date.now();
     for (const tabId of Object.keys(openTabsStartTime)) {
       const numTabId = parseInt(tabId);
-      await finalizeOpenTime(numTabId);
+      finalizeOpenTime(numTabId); // Accumulates in memory (synchronous)
       // Restart open tracking if tab is still open (and not the active tab)
       if (activeTabs.has(numTabId) && numTabId !== currentActiveTabId) {
         openTabsStartTime[numTabId] = now;
       }
     }
+    // Flush accumulated time data to storage (single I/O operation)
+    await flushTimeData();
   } else if (alarm.name === URL_TIME_PRUNE_ALARM) {
     await pruneOldTimeData();
   }
@@ -541,19 +610,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           await initPromise;
         }
 
-        // Save active tab time
-        await finalizeActiveTabTime();
+        // Accumulate active tab time
+        finalizeActiveTabTime();
 
         // Finalize all background tabs' open time and restart their tracking
         const now = Date.now();
         for (const tabId of Object.keys(openTabsStartTime)) {
           const numTabId = parseInt(tabId);
-          await finalizeOpenTime(numTabId);
+          finalizeOpenTime(numTabId);
           // Restart open tracking if tab is still open (and not the active tab)
           if (activeTabs.has(numTabId) && numTabId !== currentActiveTabId) {
             openTabsStartTime[numTabId] = now;
           }
         }
+
+        // Flush to storage
+        await flushTimeData();
 
         sendResponse({ success: true });
       } catch (e) {

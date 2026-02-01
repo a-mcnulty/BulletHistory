@@ -17,6 +17,12 @@ Class definition, constructor, `init()`, and foundational methods.
 - **Navigation:** `refreshGrid`, `setupLiveUpdates`, `handleNewVisit`, `scrollToToday`, `scrollToCurrentHour`, `scrollToDateInHourView`
 - **View switching:** `setupViewToggle`, `switchView`, `switchToHourViewForDate`, `organizeHistoryByHour`
 - **Bootstrap:** `DOMContentLoaded` listener at end of file
+- **Performance caches (constructor):**
+  - `faviconsByDomain` — Map for O(1) favicon lookup by domain
+  - `hoveredElements` — Set tracking elements with hover classes (avoids querySelectorAll on clear)
+  - `columnCells` — Map<colIndex, Set<element>> for fast column highlighting
+  - `maxCountCache` — Map<domain, maxCount> pre-computed per render
+  - `calendarScrollHandlers` — Array of {element, handler} for cleanup
 
 ### panel-grid.js — Cell grid rendering & virtualization (~1,240 lines)
 Everything related to the contribution-graph-style grid.
@@ -59,12 +65,43 @@ Google Calendar integration for showing events in the grid header and expanded v
 - **panel.css** — All styles
 - **calendar.js** — `GoogleCalendar` class (API client, auth, event fetching) — loaded before panel.js
 - **background.js** — Service worker: time tracking, tab monitoring, favicon caching, closed tab tracking
+  - Uses in-memory caching with debounced writes:
+    - `openTabsInMemory` — tab data cached in memory, written every 5s via `scheduleOpenTabsWrite()`
+    - `pendingTimeUpdates` — time deltas accumulated in memory, flushed via `flushTimeData()`
+  - Time tracking functions (`addTimeToUrl`, `finalizeActiveTabTime`, `finalizeOpenTime`) are **synchronous** — they accumulate in memory, storage writes happen on alarm or explicit flush
+
+### utils/date-utils.js — Date/time utilities (~160 lines)
+Shared date formatting and manipulation functions exposed via `window.DateUtils`.
+- `formatDateISO(date)` — Format Date to 'YYYY-MM-DD'
+- `getTodayISO()` — Get today as 'YYYY-MM-DD'
+- `formatHourISO(date)` — Format Date to 'YYYY-MM-DDTHH'
+- `getCurrentHourISO()` — Get current hour as 'YYYY-MM-DDTHH'
+- `parseHourString(hourStr)` — Parse 'YYYY-MM-DDTHH' to {dateStr, hour}
+- `formatDateForDisplay(dateStr)` — Format for UI ('Today', 'Yesterday', or full date)
+- `formatHourLabel(hour)` — Format hour as '12a', '1p', etc.
+- `formatDuration(durationMs)` — Format milliseconds to '5m', '2h', etc.
+- `formatSecondsDisplay(seconds)` — Format seconds to '5m', '2h 30m', etc.
+- `formatTimestamp12Hour(timestamp)` — Format to '6:49pm'
+- `getOrdinalSuffix(day)` — Get 'st', 'nd', 'rd', 'th'
+- `getTodayStartMs()` — Get midnight timestamp
+
+### utils/url-utils.js — URL/domain utilities (~130 lines)
+Shared URL manipulation functions exposed via `window.UrlUtils`.
+- `extractDomain(url, {stripWww})` — Extract domain from URL
+- `isValidUrl(url)` — Check if string is valid URL
+- `getHostname(url)` — Get hostname preserving www
+- `getOrigin(url)` — Get protocol + hostname
+- `hasValidProtocol(url)` — Check for http/https
+- `getFaviconFallbackUrls(url)` — Generate favicon fallback chain
+- `getGoogleFaviconUrl(domain, size)` — Get Google favicon service URL
+- `isValidFaviconUrl(faviconUrl)` — Check if favicon URL is usable
+- `hashUrl(url)` — djb2 hash for storage keys
 
 ## Script load order (panel.html)
 ```
-calendar.js → panel.js → panel-time.js → panel-grid.js → panel-expanded.js → panel-tabs.js → panel-calendar.js
+utils/date-utils.js → utils/url-utils.js → calendar.js → panel.js → panel-time.js → panel-grid.js → panel-expanded.js → panel-tabs.js → panel-calendar.js
 ```
-`panel.js` must load first (defines the class). Satellite files add to `BulletHistory.prototype`. The `DOMContentLoaded` handler at the end of `panel.js` fires after all scripts load.
+Utility files load first (expose globals). `panel.js` must load before satellite files (defines the class). Satellite files add to `BulletHistory.prototype`. The `DOMContentLoaded` handler at the end of `panel.js` fires after all scripts load.
 
 ## Common tasks
 
@@ -82,3 +119,40 @@ calendar.js → panel.js → panel-time.js → panel-grid.js → panel-expanded.
 | Add a new bottom menu view | `panel-tabs.js` + `panel.js` (`setupBottomMenu`) |
 | Fix background time tracking | `background.js` |
 | Fix favicon caching | `background.js` + `panel.js` (`loadFaviconCache`) |
+| Fix hover/scroll performance | `panel-grid.js` (use `hoveredElements` Set, `columnCells` Map) |
+| Fix sort performance | `panel.js` (pre-compute keys before sort, don't compute in comparator) |
+
+## Performance Patterns
+
+**IMPORTANT:** These patterns exist for performance reasons. Don't remove them without understanding the impact.
+
+### Grid rendering
+- **Pre-computed maxCount:** `renderVirtualRows()` computes `maxCountCache` once before the row loop, not per-row
+- **Column cell tracking:** Cells are added to `columnCells` Map during render for O(1) column highlighting
+- **Hover tracking:** Elements with hover classes are tracked in `hoveredElements` Set — `clearAllHoverStates()` only clears tracked elements instead of `querySelectorAll`
+
+### Sorting
+- **Pre-compute sort keys:** `getSortedDomains()` and `sortDomainsForHourView()` build a Map of sort keys BEFORE calling `.sort()`, then the comparator does O(1) Map lookups. Never call `Object.keys()` or iterate data inside a sort comparator.
+
+### Background script I/O
+- **Debounced tab writes:** `openTabsInMemory` is modified immediately, written to storage every 5s (or on tab close)
+- **Batched time data:** `addTimeToUrl()` accumulates in `pendingTimeUpdates`, `flushTimeData()` does a single read-modify-write
+- **Synchronous accumulation:** Time tracking functions don't await — they're called frequently and must not block
+
+### Expanded views
+- **Virtual scrolling:** All expanded views (`showDayExpandedView`, `showHourExpandedView`, `showDomainHourView`) use `renderUrlList()` with `IntersectionObserver` — never `appendChild` in a loop
+- **Lazy API calls:** `createUrlItem()` loads visit times on hover (via `mouseenter` listener), not on create
+
+### Favicon lookup
+- **Indexed by domain:** `loadFaviconCache()` builds `faviconsByDomain` Map for O(1) lookup in `renderVirtualRows()`
+
+### Calendar events
+- **Handler cleanup:** `calendarScrollHandlers` array tracks scroll listeners added in `renderCalendarEventDots()` — cleaned up in `renderDateHeader()` before re-render
+
+## Data Structure Conventions
+
+**Use Map for:** Caches, indexes, frequently accessed lookups (e.g., `faviconsByDomain`, `columnCells`, `maxCountCache`)
+
+**Use Object for:** Serializable data from storage, configuration (e.g., `historyData`, `hourlyData`, `urlTimeData`)
+
+Rationale: Maps are faster for frequent add/delete/lookup operations. Objects serialize naturally with `JSON.stringify` for Chrome storage.

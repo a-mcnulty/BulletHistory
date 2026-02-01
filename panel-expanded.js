@@ -1,24 +1,78 @@
 // panel-expanded.js — Expanded/detail views
 
-BulletHistory.prototype.showFullHistory = async function() {
-    const expandedView = document.getElementById('expandedView');
-    const expandedTitle = document.getElementById('expandedTitle');
+/**
+ * Common setup for all expanded views
+ * @param {Object} options - Configuration options
+ * @param {string} options.viewType - The type of view ('full', 'domain', 'cell', 'day', 'hour', etc.)
+ * @param {string|null} options.domain - Current domain (if applicable)
+ * @param {string|null} options.date - Current date (if applicable)
+ * @param {string|null} options.hour - Current hour (if applicable)
+ * @param {string|null} options.activeButton - ID of active menu button (null to clear)
+ * @param {boolean} options.showCalendar - Whether to show calendar section (default: false)
+ * @param {boolean} options.showNavigation - Whether to keep navigation controls (default: false)
+ * @param {boolean} options.showDeleteButton - Whether to keep delete button (default: false)
+ * @param {boolean} options.restoreDomains - Whether to restore full domain list (default: true)
+ * @returns {Object} DOM elements: { expandedView, expandedTitle, urlList, expandedHeader }
+ */
+BulletHistory.prototype.setupExpandedViewBase = function(options) {
+  const {
+    viewType,
+    domain = null,
+    date = null,
+    hour = null,
+    activeButton = null,
+    showCalendar = false,
+    showNavigation = false,
+    showDeleteButton = false,
+    restoreDomains = true
+  } = options;
 
-    // Hide calendar section (not used in full history view)
-    const calendarSection = document.getElementById('calendarSection');
-    if (calendarSection) {
-      calendarSection.style.display = 'none';
-    }
+  // Get DOM elements
+  const expandedView = document.getElementById('expandedView');
+  const expandedTitle = document.getElementById('expandedTitle');
+  const urlList = document.getElementById('urlList');
+  const expandedHeader = document.querySelector('.expanded-header');
 
-    // Set view type
-    this.expandedViewType = 'full';
-    this.currentDomain = null;
+  // Set view type and state
+  this.expandedViewType = viewType;
+  this.currentDomain = domain;
+  this.currentDate = date;
+  this.currentHour = hour;
 
-    // Set active menu button
-    this.setActiveMenuButton('recentHistoryBtn');
+  // Set active menu button
+  this.setActiveMenuButton(activeButton);
 
-    // Restore full domain list (full history shows all domains)
+  // Restore full domain list if requested
+  if (restoreDomains) {
     this.restoreAllDomains();
+  }
+
+  // Handle calendar section visibility
+  const calendarSection = document.getElementById('calendarSection');
+  if (calendarSection) {
+    calendarSection.style.display = showCalendar ? '' : 'none';
+  }
+
+  // Remove navigation controls if not needed
+  if (!showNavigation) {
+    const navContainer = document.getElementById('expandedNav');
+    if (navContainer) navContainer.remove();
+  }
+
+  // Remove delete button if not needed
+  if (!showDeleteButton) {
+    const deleteBtn = document.getElementById('deleteDomain');
+    if (deleteBtn) deleteBtn.remove();
+  }
+
+  return { expandedView, expandedTitle, urlList, expandedHeader };
+};
+
+BulletHistory.prototype.showFullHistory = async function() {
+    const { expandedTitle } = this.setupExpandedViewBase({
+      viewType: 'full',
+      activeButton: 'recentHistoryBtn'
+    });
 
     // Calculate total visits across all domains
     let totalVisits = 0;
@@ -30,12 +84,6 @@ BulletHistory.prototype.showFullHistory = async function() {
 
     // Set title
     expandedTitle.textContent = `Full History (${totalVisits} total)`;
-
-    // Remove navigation and delete button if they exist
-    const navContainer = document.getElementById('expandedNav');
-    if (navContainer) navContainer.remove();
-    const deleteBtn = document.getElementById('deleteDomain');
-    if (deleteBtn) deleteBtn.remove();
 
     // Collect all URLs from all domains with their dates
     const allUrls = [];
@@ -81,23 +129,11 @@ BulletHistory.prototype.showFullHistory = async function() {
 
 // Show domain view with all URLs grouped by date
 BulletHistory.prototype.showDomainView = async function(domain) {
-    const expandedView = document.getElementById('expandedView');
-    const expandedTitle = document.getElementById('expandedTitle');
-    const urlList = document.getElementById('urlList');
-    const expandedHeader = document.querySelector('.expanded-header');
-
-    // Hide calendar section (not used in domain view)
-    const calendarSection = document.getElementById('calendarSection');
-    if (calendarSection) {
-      calendarSection.style.display = 'none';
-    }
-
-    // Set view type
-    this.expandedViewType = 'domain';
-    this.currentDomain = domain;
-
-    // Clear active menu button (domain view is not triggered by menu buttons)
-    this.setActiveMenuButton(null);
+    const { expandedTitle, expandedHeader } = this.setupExpandedViewBase({
+      viewType: 'domain',
+      domain: domain,
+      restoreDomains: false  // Domain view doesn't restore all domains
+    });
 
     // Calculate total visits
     const domainData = this.historyData[domain];
@@ -108,12 +144,6 @@ BulletHistory.prototype.showDomainView = async function(domain) {
 
     // Set title (no navigation buttons for domain view)
     expandedTitle.textContent = `${domain} (${totalVisits} total url${totalVisits !== 1 ? 's' : ''})`;
-
-    // Remove navigation if it exists
-    const navContainer = document.getElementById('expandedNav');
-    if (navContainer) {
-      navContainer.remove();
-    }
 
     // Add delete domain button if not exists
     let deleteBtn = document.getElementById('deleteDomain');
@@ -163,25 +193,10 @@ BulletHistory.prototype.showDomainView = async function(domain) {
 
 // Show expanded view with URLs
 BulletHistory.prototype.showExpandedView = async function(domain, date, count) {
-    const expandedView = document.getElementById('expandedView');
-    const expandedTitle = document.getElementById('expandedTitle');
-    const urlList = document.getElementById('urlList');
-
-    // Set view type
-    this.expandedViewType = 'cell';
-    this.currentDomain = null;
-
-    // Clear active menu button (cell view is not triggered by menu buttons)
-    this.setActiveMenuButton(null);
-
-    // Restore full domain list (cell view is domain-specific)
-    this.restoreAllDomains();
-
-    // Remove delete domain button if it exists
-    const deleteBtn = document.getElementById('deleteDomain');
-    if (deleteBtn) {
-      deleteBtn.remove();
-    }
+    const { expandedTitle } = this.setupExpandedViewBase({
+      viewType: 'cell',
+      showNavigation: true  // Keep navigation for cell view
+    });
 
     // Format date nicely
     const dateObj = new Date(date + 'T00:00:00');
@@ -1120,9 +1135,7 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date) {
     const hours12 = hours24 % 12 || 12;
     const minutes = String(lastVisitDate.getMinutes()).padStart(2, '0');
     const ampm = hours24 < 12 ? 'am' : 'pm';
-    const timeText = `${hours12}:${minutes}${ampm}`;
-
-    timestamp.textContent = timeText;
+    timestamp.textContent = `${hours12}:${minutes}${ampm}`;
     timestamp.title = lastVisitDate.toLocaleString();
 
     leftDiv.appendChild(countSpan);
@@ -1310,21 +1323,7 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date) {
     urlDisplay.appendChild(fullUrl);
 
     // Helper to format time for display
-    const formatTimeDisplay = (seconds) => {
-      if (seconds >= 86400) {
-        const d = Math.floor(seconds / 86400);
-        const h = Math.floor((seconds % 86400) / 3600);
-        return h > 0 ? `${d}d ${h}h` : `${d}d`;
-      } else if (seconds >= 3600) {
-        const h = Math.floor(seconds / 3600);
-        const m = Math.floor((seconds % 3600) / 60);
-        return m > 0 ? `${h}h ${m}m` : `${h}h`;
-      } else if (seconds >= 60) {
-        return `${Math.floor(seconds / 60)}m`;
-      } else {
-        return `${seconds}s`;
-      }
-    };
+    const formatTimeDisplay = DateUtils.formatSecondsDisplay;
 
     // Today's stats section
     const todaySection = document.createElement('div');
@@ -1344,15 +1343,20 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date) {
     }
     todaySection.appendChild(visitDayRow);
 
-    // Visit Time(s) row - fetch all visits for today
+    // Visit Time(s) row - load lazily on first hover to avoid API calls for non-visible items
     const visitTimeRow = document.createElement('div');
     visitTimeRow.className = 'url-display-row';
+    visitTimeRow.dataset.url = urlData.url;
+    visitTimeRow.dataset.loaded = 'false';
     todaySection.appendChild(visitTimeRow);
 
-    // Async: Get all visits for this URL today
-    if (urlData.url) {
+    // Lazy-load visit times on hover (not on create) to reduce Chrome API calls
+    let visitTimesLoaded = false;
+    const loadVisitTimes = () => {
+      if (visitTimesLoaded || !urlData.url) return;
+      visitTimesLoaded = true;
+
       chrome.history.getVisits({ url: urlData.url }).then(visits => {
-        // Filter to today's visits
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
         const todayStartMs = todayStart.getTime();
@@ -1360,10 +1364,8 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date) {
         const todayVisits = visits.filter(v => v.visitTime >= todayStartMs);
 
         if (todayVisits.length > 0) {
-          // Sort by time (earliest first)
           todayVisits.sort((a, b) => a.visitTime - b.visitTime);
 
-          // Format each visit time
           const formatVisitTime = (timestamp) => {
             const date = new Date(timestamp);
             const hours = date.getHours();
@@ -1396,6 +1398,17 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date) {
           visitTimeRow.innerHTML = `<span class="meta-label">Visit Time:</span> ${hours12}:${minutes}${ampm}`;
         }
       });
+    };
+    // End of loadVisitTimes function
+
+    // Show placeholder text initially
+    if (urlData.lastVisit) {
+      const lastVisitDate = new Date(urlData.lastVisit);
+      const hours = lastVisitDate.getHours();
+      const minutes = String(lastVisitDate.getMinutes()).padStart(2, '0');
+      const ampm = hours >= 12 ? 'pm' : 'am';
+      const hours12 = hours % 12 || 12;
+      visitTimeRow.innerHTML = `<span class="meta-label">Visit Time:</span> ${hours12}:${minutes}${ampm}`;
     }
 
     // Active Time (today) row
@@ -1456,9 +1469,7 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date) {
       const liveTotalOpen = Math.floor((now - openedAt) / 1000);
 
       // Calculate how much of that is "today"
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const todayStartMs = todayStart.getTime();
+      const todayStartMs = DateUtils.getTodayStartMs();
 
       let liveOpenToday;
       if (openedAt >= todayStartMs) {
@@ -1512,6 +1523,9 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date) {
 
     urlTextContainer.appendChild(urlLink);
     urlTextContainer.appendChild(urlDisplay);
+
+    // Lazy-load visit times when hovering (url-display becomes visible on hover via CSS)
+    urlTextContainer.addEventListener('mouseenter', loadVisitTimes, { once: true });
 
     rightDiv.appendChild(favicon);
     rightDiv.appendChild(urlTextContainer);
@@ -2347,26 +2361,11 @@ BulletHistory.prototype.toggleBookmark = function(url, title, bookmarkBtn) {
 };
 
 BulletHistory.prototype.showDayExpandedView = function(dateStr) {
-    const expandedView = document.getElementById('expandedView');
-    const expandedTitle = document.getElementById('expandedTitle');
-    const urlList = document.getElementById('urlList');
-
-    // Set view type
-    this.expandedViewType = 'day';
-    this.currentDomain = null;
-    this.currentDate = dateStr;
-
-    // Clear active menu button (day view is not triggered by menu buttons)
-    this.setActiveMenuButton(null);
-
-    // Restore full domain list (day view is date-specific)
-    this.restoreAllDomains();
-
-    // Remove delete domain button if it exists
-    const deleteBtn = document.getElementById('deleteDomain');
-    if (deleteBtn) {
-      deleteBtn.remove();
-    }
+    const { expandedTitle, urlList } = this.setupExpandedViewBase({
+      viewType: 'day',
+      date: dateStr,
+      showCalendar: true  // Day view shows calendar events
+    });
 
     // Format date nicely
     const dateObj = new Date(dateStr + 'T00:00:00');
@@ -2423,55 +2422,13 @@ BulletHistory.prototype.showDayExpandedView = function(dateStr) {
     // Render calendar events for this date
     this.renderCalendarEventsForDate(dateStr);
 
-    // Clear URL list
-    urlList.innerHTML = '';
-
+    // Use virtual scrolling for performance
     if (allUrls.length === 0) {
       urlList.innerHTML = '<div class="no-urls">No visits on this day</div>';
     } else {
-      // Only group by hour if sorting by recent time
-      // For other sort modes, show flat list
-      if (this.sortMode === 'recent') {
-        // Group URLs by hour for better organization
-        const urlsByHour = {};
-
-      allUrls.forEach(urlData => {
-        const visitDate = new Date(urlData.lastVisit);
-        const hour = visitDate.getHours();
-        const hourKey = `${String(hour).padStart(2, '0')}:00`;
-
-        if (!urlsByHour[hourKey]) {
-          urlsByHour[hourKey] = [];
-        }
-        urlsByHour[hourKey].push(urlData);
-      });
-
-      // Render URLs grouped by hour
-      const hours = Object.keys(urlsByHour).sort().reverse(); // Most recent hour first
-
-      hours.forEach(hourKey => {
-        // Hour header
-        const hourHeader = document.createElement('div');
-        hourHeader.className = 'hour-group-header';
-        const hourNum = parseInt(hourKey.split(':')[0]);
-        const ampm = hourNum >= 12 ? 'PM' : 'AM';
-        const displayHour = hourNum === 0 ? 12 : (hourNum > 12 ? hourNum - 12 : hourNum);
-        hourHeader.textContent = `${displayHour}:00 ${ampm} (${urlsByHour[hourKey].length} visit${urlsByHour[hourKey].length !== 1 ? 's' : ''})`;
-        urlList.appendChild(hourHeader);
-
-        // URLs for this hour - use the standard createUrlItem method
-        urlsByHour[hourKey].forEach(urlData => {
-          const urlItem = this.createUrlItem(urlData, urlData.domain, dateStr);
-          urlList.appendChild(urlItem);
-        });
-      });
-      } else {
-        // For popular and alphabetical sort modes, show flat list without hour grouping
-        allUrls.forEach(urlData => {
-          const urlItem = this.createUrlItem(urlData, urlData.domain, dateStr);
-          urlList.appendChild(urlItem);
-        });
-      }
+      // Store URLs for virtual scrolling
+      this.expandedUrls = allUrls;
+      this.renderUrlList();
     }
 
     // Show the expanded view
@@ -2483,24 +2440,14 @@ BulletHistory.prototype.showDomainHourView = async function(domain, hourStr, cou
     // Refresh time data cache before showing URL items
     await this.refreshUrlTimeCache();
 
-    const expandedView = document.getElementById('expandedView');
-    const expandedTitle = document.getElementById('expandedTitle');
-    const urlList = document.getElementById('urlList');
-
-    // Set view type
-    this.expandedViewType = 'cell';
-    this.currentDomain = domain;
-    this.currentDate = hourStr; // Store hourStr as currentDate for navigation
-
-    // Hide calendar section (not used for single domain-hour view)
-    const calendarSection = document.getElementById('calendarSection');
-    if (calendarSection) {
-      calendarSection.style.display = 'none';
-    }
+    const { expandedTitle, urlList } = this.setupExpandedViewBase({
+      viewType: 'cell',
+      domain: domain,
+      date: hourStr  // Store hourStr as currentDate for navigation
+    });
 
     // Parse hourStr (format: 'YYYY-MM-DDTHH')
-    const [datePart, hourPart] = hourStr.split('T');
-    const hourNum = parseInt(hourPart);
+    const { dateStr: datePart, hour: hourNum } = DateUtils.parseHourString(hourStr);
 
     // Format date and time nicely
     const dateObj = new Date(datePart + 'T00:00:00');
@@ -2515,18 +2462,6 @@ BulletHistory.prototype.showDomainHourView = async function(domain, hourStr, cou
     const ampm = hourNum >= 12 ? 'PM' : 'AM';
     const displayHour = hourNum === 0 ? 12 : (hourNum > 12 ? hourNum - 12 : hourNum);
     const hourDisplay = `${displayHour}:00 ${ampm}`;
-
-    // Remove delete domain button if it exists
-    const deleteBtn = document.getElementById('deleteDomain');
-    if (deleteBtn) {
-      deleteBtn.remove();
-    }
-
-    // Remove navigation controls if they exist
-    const navContainer = document.getElementById('expandedNav');
-    if (navContainer) {
-      navContainer.remove();
-    }
 
     // Get URLs for this domain and hour from Chrome history
     const hourData = this.hourlyData[domain]?.[hourStr];
@@ -2588,11 +2523,9 @@ BulletHistory.prototype.showDomainHourView = async function(domain, hourStr, cou
       date: hourStr  // Pass full hourStr, not just datePart
     }));
 
-    // Render URLs
-    urlsWithContext.forEach(urlData => {
-      const urlItem = this.createUrlItem(urlData, domain, hourStr);  // Pass hourStr, not datePart
-      urlList.appendChild(urlItem);
-    });
+    // Use virtual scrolling for performance
+    this.expandedUrls = urlsWithContext;
+    this.renderUrlList();
 
     // Show the expanded view
     this.showExpandedViewAnimated();
@@ -2603,31 +2536,14 @@ BulletHistory.prototype.showHourExpandedView = async function(hourStr) {
     // Refresh time data cache before showing URL items
     await this.refreshUrlTimeCache();
 
-    const expandedView = document.getElementById('expandedView');
-    const expandedTitle = document.getElementById('expandedTitle');
-    const urlList = document.getElementById('urlList');
-
-    // Set view type
-    this.expandedViewType = 'hour';
-    this.currentDomain = null;
-    this.currentDate = null;
-    this.currentHour = hourStr;
-
-    // Clear active menu button (hour view is not triggered by menu buttons)
-    this.setActiveMenuButton(null);
-
-    // Restore full domain list (hour view is hour-specific)
-    this.restoreAllDomains();
-
-    // Remove delete domain button if it exists
-    const deleteBtn = document.getElementById('deleteDomain');
-    if (deleteBtn) {
-      deleteBtn.remove();
-    }
+    const { expandedTitle } = this.setupExpandedViewBase({
+      viewType: 'hour',
+      hour: hourStr,
+      showCalendar: true  // Hour view shows calendar events
+    });
 
     // Parse hourStr (format: 'YYYY-MM-DDTHH')
-    const [datePart, hourPart] = hourStr.split('T');
-    const hourNum = parseInt(hourPart);
+    const { dateStr: datePart, hour: hourNum } = DateUtils.parseHourString(hourStr);
 
     // Format date and time nicely
     const dateObj = new Date(datePart + 'T00:00:00');
@@ -2680,26 +2596,17 @@ BulletHistory.prototype.showHourExpandedView = async function(hourStr) {
     // Set title
     expandedTitle.textContent = `${formattedDate} - ${hourDisplay} (${totalCount} url${totalCount !== 1 ? 's' : ''})`;
 
-    // Remove navigation controls if they exist
-    const navContainer = document.getElementById('expandedNav');
-    if (navContainer) {
-      navContainer.remove();
-    }
-
     // Render calendar events for this specific hour
     this.renderCalendarEventsForHour(hourStr);
 
-    // Clear URL list
-    urlList.innerHTML = '';
-
+    // Use virtual scrolling for performance
     if (allUrls.length === 0) {
+      const urlList = document.getElementById('urlList');
       urlList.innerHTML = '<div class="no-urls">No visits during this hour</div>';
     } else {
-      // Render URLs based on sort mode
-      allUrls.forEach(urlData => {
-        const urlItem = this.createUrlItem(urlData, urlData.domain, hourStr);  // Pass hourStr, not datePart
-        urlList.appendChild(urlItem);
-      });
+      // Store URLs for virtual scrolling
+      this.expandedUrls = allUrls;
+      this.renderUrlList();
     }
 
     // Show the expanded view

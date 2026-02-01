@@ -9,6 +9,7 @@ class BulletHistory {
     this.filteredMode = false; // Track if domains are filtered to expanded view
     this.originalSortedDomains = null; // Store full domain list when filtering
     this.faviconCache = {}; // Cached favicons from active tabs: { url: { favicon, timestamp } }
+    this.faviconsByDomain = new Map(); // Performance optimization: domain -> favicon URL for O(1) lookup
     this.urlTimeCache = {}; // Cached URL time tracking data: { url: { activeSeconds, openSeconds } }
     this.urlTimeDataByDomain = {}; // Time data organized by domain for cell rendering: { domain: { dateStr: { urls: Set, hourToUrls: { hour: Set } } } }
     this.openTabsByUrl = {}; // Map of URL to openedAt timestamp for currently open tabs
@@ -41,6 +42,15 @@ class BulletHistory {
 
     // Open Graph metadata cache (title and description only, no images)
     this.ogCache = new Map();
+
+    // Performance optimization: track hovered elements to avoid querySelectorAll on clear
+    this.hoveredElements = new Set();
+    // Performance optimization: map column index to cell elements for fast column highlighting
+    this.columnCells = new Map(); // Map<colIndex, Set<element>>
+    // Performance optimization: cache maxCount per domain to avoid recalculating per row
+    this.maxCountCache = new Map(); // Map<domain, maxCount>
+    // Track calendar event scroll handlers for cleanup
+    this.calendarScrollHandlers = [];
 
     this.init();
   }
@@ -319,12 +329,7 @@ class BulletHistory {
     const current = new Date(earliestDate);
 
     while (current <= latestDate) {
-      const year = current.getFullYear();
-      const month = String(current.getMonth() + 1).padStart(2, '0');
-      const day = String(current.getDate()).padStart(2, '0');
-      const hour = String(current.getHours()).padStart(2, '0');
-      const hourStr = `${year}-${month}-${day}T${hour}`;
-      this.hours.push(hourStr);
+      this.hours.push(DateUtils.formatHourISO(current));
       current.setHours(current.getHours() + 1);
     }
 
@@ -332,29 +337,11 @@ class BulletHistory {
   }
 
   formatDate(date) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    return DateUtils.formatDateISO(date);
   }
 
   formatDateHeader(dateStr) {
-    const date = new Date(dateStr + 'T00:00:00');
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    // Check if it's today or yesterday
-    if (this.formatDate(date) === this.formatDate(today)) {
-      return 'Today';
-    } else if (this.formatDate(date) === this.formatDate(yesterday)) {
-      return 'Yesterday';
-    }
-
-    // Otherwise, format as "Day, Month Date, Year" (e.g., "Monday, Dec 23, 2025")
-    const options = { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' };
-    return date.toLocaleDateString('en-US', options);
+    return DateUtils.formatDateForDisplay(dateStr);
   }
 
   // Fetch Chrome history (all available) or generate fake data
@@ -452,8 +439,7 @@ class BulletHistory {
 
     for (const item of results) {
       try {
-        const url = new URL(item.url);
-        const domain = url.hostname.replace('www.', '');
+        const domain = UrlUtils.extractDomain(item.url);
 
         // Skip if domain is empty or whitespace
         if (!domain || domain.trim().length === 0) {
@@ -545,6 +531,15 @@ class BulletHistory {
     return new Promise((resolve) => {
       chrome.storage.local.get(['faviconCache'], (result) => {
         this.faviconCache = result.faviconCache || {};
+        // Build domain -> favicon index for O(1) lookup in renderVirtualRows
+        this.faviconsByDomain.clear();
+        for (const [url, data] of Object.entries(this.faviconCache)) {
+          const domain = UrlUtils.getHostname(url);
+          // Only store if we don't already have one for this domain (first one wins)
+          if (domain && !this.faviconsByDomain.has(domain) && data.favicon) {
+            this.faviconsByDomain.set(domain, data.favicon);
+          }
+        }
         resolve();
       });
     });
@@ -563,21 +558,21 @@ class BulletHistory {
       domains = domains.filter(domain => domain.toLowerCase().includes(filterLower));
     }
 
-    // Apply sort
+    // Apply sort - pre-compute sort keys to avoid O(n²) in comparator
     switch (this.sortMode) {
       case 'recent':
-        // Most recent visit first
+        // Most recent visit first - lastVisit is already stored, just reference it
         return domains.sort((a, b) => {
           return this.historyData[b].lastVisit - this.historyData[a].lastVisit;
         });
 
       case 'popular':
-        // Most days with visits first
-        return domains.sort((a, b) => {
-          const aDays = Object.keys(this.historyData[a].days).length;
-          const bDays = Object.keys(this.historyData[b].days).length;
-          return bDays - aDays;
-        });
+        // Most days with visits first - pre-compute day counts
+        const dayCounts = new Map();
+        for (const domain of domains) {
+          dayCounts.set(domain, Object.keys(this.historyData[domain].days).length);
+        }
+        return domains.sort((a, b) => dayCounts.get(b) - dayCounts.get(a));
 
       case 'alphabetical':
         // A to Z
@@ -602,45 +597,35 @@ class BulletHistory {
       domains = domains.filter(domain => domain.toLowerCase().includes(filterLower));
     }
 
-    // Apply sort
+    // Apply sort - pre-compute sort keys to avoid O(n²) in comparator
     switch (this.sortMode) {
       case 'recent':
-        // Most recent visit first (check all URLs in all hours)
-        return domains.sort((a, b) => {
-          let aMaxTime = 0;
-          let bMaxTime = 0;
-
-          Object.values(this.hourlyData[a]).forEach(hourData => {
-            hourData.urls.forEach(url => {
-              aMaxTime = Math.max(aMaxTime, url.lastVisitTime);
-            });
-          });
-
-          Object.values(this.hourlyData[b]).forEach(hourData => {
-            hourData.urls.forEach(url => {
-              bMaxTime = Math.max(bMaxTime, url.lastVisitTime);
-            });
-          });
-
-          return bMaxTime - aMaxTime;
-        });
+        // Most recent visit first - pre-compute max visit time per domain
+        const recentTimes = new Map();
+        for (const domain of domains) {
+          let maxTime = 0;
+          for (const hourData of Object.values(this.hourlyData[domain])) {
+            for (const url of hourData.urls) {
+              if (url.lastVisitTime > maxTime) {
+                maxTime = url.lastVisitTime;
+              }
+            }
+          }
+          recentTimes.set(domain, maxTime);
+        }
+        return domains.sort((a, b) => recentTimes.get(b) - recentTimes.get(a));
 
       case 'popular':
-        // Most total visits in the day
-        return domains.sort((a, b) => {
-          let aTotal = 0;
-          let bTotal = 0;
-
-          Object.values(this.hourlyData[a]).forEach(hourData => {
-            aTotal += hourData.count;
-          });
-
-          Object.values(this.hourlyData[b]).forEach(hourData => {
-            bTotal += hourData.count;
-          });
-
-          return bTotal - aTotal;
-        });
+        // Most total visits - pre-compute total counts per domain
+        const totalCounts = new Map();
+        for (const domain of domains) {
+          let total = 0;
+          for (const hourData of Object.values(this.hourlyData[domain])) {
+            total += hourData.count;
+          }
+          totalCounts.set(domain, total);
+        }
+        return domains.sort((a, b) => totalCounts.get(b) - totalCounts.get(a));
 
       case 'alphabetical':
         // A to Z
@@ -718,20 +703,7 @@ class BulletHistory {
   }
 
   formatDuration(durationMs) {
-    const seconds = Math.floor(durationMs / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-
-    if (days > 0) {
-      return `${days}d`;
-    } else if (hours > 0) {
-      return `${hours}h`;
-    } else if (minutes > 0) {
-      return `${minutes}m`;
-    } else {
-      return `${seconds}s`;
-    }
+    return DateUtils.formatDuration(durationMs);
   }
 
   setupSortDropdown() {
@@ -858,6 +830,14 @@ class BulletHistory {
         // Reload favicon cache when it's updated
         if (changes.faviconCache) {
           this.faviconCache = changes.faviconCache.newValue || {};
+          // Rebuild domain index
+          this.faviconsByDomain.clear();
+          for (const [url, data] of Object.entries(this.faviconCache)) {
+            const domain = UrlUtils.getHostname(url);
+            if (domain && !this.faviconsByDomain.has(domain) && data.favicon) {
+              this.faviconsByDomain.set(domain, data.favicon);
+            }
+          }
         }
 
         // Refresh closed tabs view if currently viewing
@@ -879,8 +859,7 @@ class BulletHistory {
   // Handle a new visit from chrome.history.onVisited
   handleNewVisit(historyItem) {
     try {
-      const url = new URL(historyItem.url);
-      const domain = url.hostname.replace('www.', '');
+      const domain = UrlUtils.extractDomain(historyItem.url);
 
       // Skip if domain is empty or whitespace
       if (!domain || domain.trim().length === 0) {
@@ -1090,12 +1069,7 @@ class BulletHistory {
   }
 
   scrollToCurrentHour() {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    const hour = String(now.getHours()).padStart(2, '0');
-    const currentHourStr = `${year}-${month}-${day}T${hour}`;
+    const currentHourStr = DateUtils.getCurrentHourISO();
 
     const currentHourIndex = this.hours.indexOf(currentHourStr);
 
@@ -1371,22 +1345,21 @@ class BulletHistory {
       // Go through each day
       for (const dateStr in domainData.days) {
         const dayData = domainData.days[dateStr];
-        console.log(`Processing ${domain} - ${dateStr}: ${dayData.urls?.length || 0} urls`);
 
         // For each URL visited on this day
         if (dayData.urls && dayData.urls.length > 0) {
-          dayData.urls.forEach(urlData => {
-            const visitDate = new Date(urlData.lastVisit);
-            const year = visitDate.getFullYear();
-            const month = String(visitDate.getMonth() + 1).padStart(2, '0');
-            const day = String(visitDate.getDate()).padStart(2, '0');
-            const hour = String(visitDate.getHours()).padStart(2, '0');
-            const hourStr = `${year}-${month}-${day}T${hour}`;
+          // Initialize domain once per domain
+          if (!hourlyData[domain]) {
+            hourlyData[domain] = {};
+          }
 
-            // Initialize domain if needed
-            if (!hourlyData[domain]) {
-              hourlyData[domain] = {};
-            }
+          for (const urlData of dayData.urls) {
+            // Extract hour from timestamp without creating Date object for each URL
+            // Use a single Date object and reuse it
+            const visitDate = new Date(urlData.lastVisit);
+            const hour = String(visitDate.getHours()).padStart(2, '0');
+            // Use dateStr from the outer loop (already have it) combined with extracted hour
+            const hourStr = `${dateStr}T${hour}`;
 
             // Initialize hour if needed
             if (!hourlyData[domain][hourStr]) {
@@ -1396,32 +1369,18 @@ class BulletHistory {
             // Add visit to this hour
             hourlyData[domain][hourStr].count++;
             hourlyData[domain][hourStr].urls.push(urlData);
-          });
+          }
         }
       }
     }
 
     console.log('Hourly data organized:', Object.keys(hourlyData).length, 'domains');
-    console.log('Total hours with data:',
-      Object.values(hourlyData).reduce((sum, domainData) =>
-        sum + Object.keys(domainData).length, 0));
-
-    // Show a sample
-    const sampleDomain = Object.keys(hourlyData)[0];
-    if (sampleDomain) {
-      console.log('Sample domain:', sampleDomain);
-      console.log('Sample hours:', Object.keys(hourlyData[sampleDomain]).slice(0, 5));
-      console.log('Sample hour data:', hourlyData[sampleDomain][Object.keys(hourlyData[sampleDomain])[0]]);
-    }
 
     this.hourlyData = hourlyData;
   }
 
   formatHourLabel(hour) {
-    // Format as 12-hour time: 12a, 1a, 2a, ..., 11a, 12p, 1p, ..., 11p
-    const isPM = hour >= 12;
-    const displayHour = hour === 0 ? 12 : (hour > 12 ? hour - 12 : hour);
-    return `${displayHour}${isPM ? 'p' : 'a'}`;
+    return DateUtils.formatHourLabel(hour);
   }
 }
 

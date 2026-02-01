@@ -1,11 +1,7 @@
 // panel-time.js — URL time tracking data
 
 BulletHistory.prototype.hashUrl = function(url) {
-    let hash = 5381;
-    for (let i = 0; i < url.length; i++) {
-      hash = ((hash << 5) + hash) ^ url.charCodeAt(i);
-    }
-    return (hash >>> 0).toString(16).padStart(8, '0');
+    return UrlUtils.hashUrl(url);
 };
 
 // Get cached time data for a URL (synchronous)
@@ -26,8 +22,7 @@ BulletHistory.prototype.loadUrlTimeData = async function(url) {
       const urlHash = this.hashUrl(url);
 
       // Get today's date string
-      const today = new Date();
-      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      const todayStr = DateUtils.getTodayISO();
       const todayKey = `${urlHash}:${todayStr}`;
 
       let totalActive = 0;
@@ -133,17 +128,22 @@ BulletHistory.prototype.loadUrlTimeDataForCells = async function() {
       this.urlTimeDataByDomain = {};
 
       // Get today's date string for today-specific aggregation
-      const today = new Date();
-      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      const todayStr = DateUtils.getTodayISO();
 
       // Also aggregate time data per-URL for the urlTimeCache
       const urlTimeAggregates = {}; // { url: { activeSeconds, openSeconds, activeTodaySeconds, openTodaySeconds } }
+
+      // Cache URL -> domain mapping to avoid repeated URL parsing
+      const urlToDomain = new Map();
 
       for (const key of Object.keys(urlTimeData)) {
         const entry = urlTimeData[key];
 
         // Extract hash and date from key (format: urlHash:YYYY-MM-DD)
-        const [urlHash, dateStr] = key.split(':');
+        const colonIdx = key.indexOf(':');
+        if (colonIdx === -1) continue;
+        const urlHash = key.substring(0, colonIdx);
+        const dateStr = key.substring(colonIdx + 1);
         if (!dateStr) continue;
 
         // Look up URL from hash table, fall back to entry.url for old entries
@@ -173,13 +173,12 @@ BulletHistory.prototype.loadUrlTimeDataForCells = async function() {
           urlTimeAggregates[url].openTodaySeconds += entryOpen;
         }
 
-        // Get domain from URL
-        let domain;
-        try {
-          const urlObj = new URL(url);
-          domain = urlObj.hostname;
-        } catch (e) {
-          continue;
+        // Get domain from URL (use cached mapping if available)
+        let domain = urlToDomain.get(url);
+        if (!domain) {
+          domain = UrlUtils.getHostname(url);
+          if (!domain) continue;
+          urlToDomain.set(url, domain);
         }
 
         // Initialize domain structure
