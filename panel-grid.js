@@ -1,7 +1,7 @@
 // panel-grid.js — Cell grid rendering & virtualization
 
 BulletHistory.prototype.renderDateHeader = function() {
-    console.log('renderDateHeader called, viewMode:', this.viewMode);
+    
 
     // Cleanup old calendar scroll handlers to prevent accumulation
     if (this.calendarScrollHandlers && this.calendarScrollHandlers.length > 0) {
@@ -149,7 +149,7 @@ BulletHistory.prototype.renderDateHeader = function() {
 
   // Render hour header for hour view
 BulletHistory.prototype.renderHourHeader = function() {
-    console.log('renderHourHeader called, hours:', this.hours.length);
+    
 
     // Add class to container to enable hour-view specific CSS
     document.querySelector('.container').classList.add('hour-view');

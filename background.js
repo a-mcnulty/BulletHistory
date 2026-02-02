@@ -178,7 +178,6 @@ function finalizeActiveTabTime() {
   // Skip if elapsed time suggests system was asleep (> 90 seconds since last update)
   // This can happen if tab switch occurs right after wake
   if (elapsedMs > MAX_EXPECTED_ALARM_GAP_MS) {
-    console.log(`Skipping active time: ${Math.round(elapsedMs / 1000)}s elapsed (likely sleep)`);
     lastActiveTimestamp = now;
     return;
   }
@@ -209,7 +208,6 @@ function finalizeOpenTime(tabId) {
 
   // Skip if elapsed time suggests system was asleep (> 90 seconds since last update)
   if (elapsedMs > MAX_EXPECTED_ALARM_GAP_MS) {
-    console.log(`Skipping open time for tab ${tabId}: ${Math.round(elapsedMs / 1000)}s elapsed (likely sleep)`);
     delete openTabsStartTime[tabId];
     return;
   }
@@ -286,7 +284,6 @@ async function pruneOldTimeData() {
 
     if (pruned) {
       await chrome.storage.local.set({ urlTimeData, urlHashes });
-      console.log('Pruned old URL time data');
     }
   } catch (e) {
     console.warn('Failed to prune URL time data:', e);
@@ -608,7 +605,6 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
     // Check for sleep: if more time passed than expected, system was likely asleep
     if (timeSinceLastAlarm > MAX_EXPECTED_ALARM_GAP_MS) {
-      console.log(`Sleep detected: ${Math.round(timeSinceLastAlarm / 1000)}s gap. Resetting timestamps without adding sleep time.`);
 
       // Reset timestamps to now WITHOUT finalizing (don't count sleep as open time)
       lastActiveTimestamp = windowFocused ? now : null;
@@ -684,17 +680,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
  * Sync calendar events for the current date range
  */
 async function syncCalendarEvents() {
-  console.log('Starting calendar sync...');
   try {
     // Check if user is authenticated
     const result = await chrome.storage.local.get(['calendarAuth']);
     const authState = result.calendarAuth;
 
     if (!authState || !authState.enabled) {
-      console.log('Calendar sync skipped: not authenticated');
       return;
     }
-    console.log('Auth state:', authState);
 
     // Get auth token (non-interactive)
     const token = await new Promise((resolve) => {
@@ -708,7 +701,6 @@ async function syncCalendarEvents() {
     });
 
     if (!token) {
-      console.log('Calendar sync skipped: no valid token');
       return;
     }
 
@@ -727,7 +719,6 @@ async function syncCalendarEvents() {
       .map(cal => cal.id);
 
     if (enabledCalendars.length === 0) {
-      console.log('Calendar sync skipped: no enabled calendars');
       return;
     }
 
@@ -836,8 +827,6 @@ async function syncCalendarEvents() {
       calendarData: calendarData,
       calendarCacheTimestamp: Date.now()
     });
-
-    console.log(`Calendar sync completed: ${allEvents.length} events from ${enabledCalendars.length} calendars`);
 
     // Notify panel that calendar data has been updated
     chrome.runtime.sendMessage({

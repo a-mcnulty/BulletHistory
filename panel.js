@@ -136,7 +136,6 @@ class BulletHistory {
     // Listen for calendar data updates from background sync
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.type === 'calendarDataUpdated') {
-        console.log('Calendar data updated, refreshing UI');
         // Reload calendar data and refresh UI
         this.refreshCalendarUI();
       } else if (message.type === 'tabsUpdated') {
@@ -333,7 +332,6 @@ class BulletHistory {
       current.setHours(current.getHours() + 1);
     }
 
-    console.log('Generated hours:', this.hours.length, 'hours from', this.hours[0], 'to', this.hours[this.hours.length - 1]);
   }
 
   formatDate(date) {
@@ -586,7 +584,6 @@ class BulletHistory {
   // Get sorted domains for hour view
   sortDomainsForHourView() {
     let domains = Object.keys(this.hourlyData);
-    console.log('sortDomainsForHourView: Starting with', domains.length, 'domains from hourlyData');
 
     // Filter out empty or whitespace-only domains
     domains = domains.filter(domain => domain && domain.trim().length > 0);
@@ -1277,12 +1274,9 @@ class BulletHistory {
   }
 
   async switchView(view) {
-    console.log('switchView called, changing from', this.viewMode, 'to', view);
-
     if (this.viewMode === view) return; // Already in this view
 
     this.viewMode = view;
-    console.log('viewMode now set to:', this.viewMode);
 
     // Save view mode to localStorage
     localStorage.setItem('bulletHistoryViewMode', view);
@@ -1298,17 +1292,14 @@ class BulletHistory {
 
     if (view === 'hour') {
       // Switch to hour view - generate hours for entire range
-      console.log('Switching to hour view');
       this.generateHours();
       await this.organizeHistoryByHour();
 
       // Update sorted domains list from hourly data
       this.sortedDomains = this.sortDomainsForHourView();
-      console.log('Hour view sortedDomains:', this.sortedDomains.length, 'domains');
     } else {
       // Switch back to day view - restore domains from historyData
       this.sortedDomains = this.getSortedDomains();
-      console.log('Day view sortedDomains:', this.sortedDomains.length, 'domains');
     }
 
     // Re-render everything
@@ -1333,9 +1324,6 @@ class BulletHistory {
   }
 
   async organizeHistoryByHour() {
-    console.log('Organizing history by hour...');
-    console.log('historyData domains:', Object.keys(this.historyData).length);
-
     const hourlyData = {};
 
     // Go through each domain in historyData

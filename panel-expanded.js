@@ -820,7 +820,7 @@ BulletHistory.prototype.setupFolderDropTarget = function(groupHeader) {
 
       // Don't move if dropping on same folder
       if (dragData.currentFolder === targetFolderName) {
-        console.log('Cannot drop bookmark in same folder');
+        
         return;
       }
 
@@ -831,7 +831,7 @@ BulletHistory.prototype.setupFolderDropTarget = function(groupHeader) {
         if (chrome.runtime.lastError) {
           console.error('Failed to move bookmark:', chrome.runtime.lastError);
         } else {
-          console.log('Bookmark moved successfully');
+          
           // Refresh will happen automatically via onMoved listener
         }
       });
@@ -904,7 +904,7 @@ BulletHistory.prototype.setupUrlItemDropTarget = function(urlItem) {
 
       // Don't move if dropping on same folder
       if (dragData.currentFolder === targetFolderName) {
-        console.log('Cannot drop bookmark in same folder');
+        
         return;
       }
 
@@ -915,7 +915,7 @@ BulletHistory.prototype.setupUrlItemDropTarget = function(urlItem) {
         if (chrome.runtime.lastError) {
           console.error('Failed to move bookmark:', chrome.runtime.lastError);
         } else {
-          console.log('Bookmark moved successfully');
+          
           // Refresh will happen automatically via onMoved listener
         }
       });
