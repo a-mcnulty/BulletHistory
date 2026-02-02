@@ -807,7 +807,7 @@ BulletHistory.prototype.setupTooltips = function() {
         const date = e.target.dataset.date;
 
         if (count > 0) {
-          tooltip.textContent = `${count} visit${count !== 1 ? 's' : ''}`;
+          tooltip.textContent = `${count} tab${count !== 1 ? 's' : ''} open`;
           tooltip.classList.add('visible');
 
           // Position tooltip near cursor

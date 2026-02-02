@@ -1056,16 +1056,6 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date) {
     const leftDiv = document.createElement('div');
     leftDiv.className = 'url-item-left';
 
-    const countSpan = document.createElement('span');
-    countSpan.className = 'url-item-count';
-
-    // For active tabs: show duration instead of visit count
-    if (this.expandedViewType === 'active' && urlData.duration !== undefined) {
-      countSpan.textContent = this.formatDuration(urlData.duration);
-    } else {
-      countSpan.textContent = `${urlData.visitCount}×`;
-    }
-
     // Create time tracking span
     const timeSpan = document.createElement('span');
     timeSpan.className = 'url-item-time';
@@ -1138,7 +1128,6 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date) {
     timestamp.textContent = `${hours12}:${minutes}${ampm}`;
     timestamp.title = lastVisitDate.toLocaleString();
 
-    leftDiv.appendChild(countSpan);
     leftDiv.appendChild(timestamp);
     leftDiv.appendChild(timeSpan);
 
@@ -1304,19 +1293,14 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date) {
     const displayText = urlData.title || urlData.url;
     urlLink.textContent = displayText;
 
-    // Add hover display (shows full title + URL)
+    // Add hover display (shows URL and metadata)
     const urlDisplay = document.createElement('div');
     urlDisplay.className = 'url-display';
 
-    // Add full title if it differs from what's shown (truncated via CSS)
-    if (urlData.title && urlData.title.length > 0) {
-      const fullTitle = document.createElement('div');
-      fullTitle.className = 'url-display-title';
-      fullTitle.textContent = urlData.title;
-      urlDisplay.appendChild(fullTitle);
-    }
+    // Add actions at the top of the hover display
+    urlDisplay.appendChild(actionsDiv);
 
-    // Add URL below title (limited to 3 lines via CSS)
+    // Add URL (limited to 3 lines via CSS)
     const fullUrl = document.createElement('div');
     fullUrl.className = 'url-display-url';
     fullUrl.textContent = urlData.url;
@@ -1494,9 +1478,6 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date) {
         populateTimeRows(null);
       }
     }
-
-    // Add actions inside the hover display
-    urlDisplay.appendChild(actionsDiv);
 
     // For active tabs, switch to the tab instead of opening a new one
     if (this.expandedViewType === 'active' && urlData.tabId) {

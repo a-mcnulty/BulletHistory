@@ -54,6 +54,10 @@ const initPromise = new Promise(resolve => { initPromiseResolve = resolve; });
 const pendingTimeUpdates = {};
 let pendingUrlHashes = {}; // New URL hash mappings to add
 
+// Sleep detection: track last alarm time to detect system sleep
+let lastAlarmTime = Date.now();
+const MAX_EXPECTED_ALARM_GAP_MS = 90000; // 90 seconds (alarm is every 60s, allow 30s buffer)
+
 // djb2 hash function, returns 8-char hex string
 function hashUrl(url) {
   let hash = 5381;
@@ -169,7 +173,17 @@ function finalizeActiveTabTime() {
   if (!currentActiveUrl || !lastActiveTimestamp || !windowFocused) return;
 
   const now = Date.now();
-  const elapsedSeconds = Math.floor((now - lastActiveTimestamp) / 1000);
+  const elapsedMs = now - lastActiveTimestamp;
+
+  // Skip if elapsed time suggests system was asleep (> 90 seconds since last update)
+  // This can happen if tab switch occurs right after wake
+  if (elapsedMs > MAX_EXPECTED_ALARM_GAP_MS) {
+    console.log(`Skipping active time: ${Math.round(elapsedMs / 1000)}s elapsed (likely sleep)`);
+    lastActiveTimestamp = now;
+    return;
+  }
+
+  const elapsedSeconds = Math.floor(elapsedMs / 1000);
 
   if (elapsedSeconds > 0) {
     // Active time contributes to both 'a' (active) AND 'o' (open)
@@ -191,7 +205,16 @@ function finalizeOpenTime(tabId) {
   }
 
   const now = Date.now();
-  const elapsedSeconds = Math.floor((now - startTime) / 1000);
+  const elapsedMs = now - startTime;
+
+  // Skip if elapsed time suggests system was asleep (> 90 seconds since last update)
+  if (elapsedMs > MAX_EXPECTED_ALARM_GAP_MS) {
+    console.log(`Skipping open time for tab ${tabId}: ${Math.round(elapsedMs / 1000)}s elapsed (likely sleep)`);
+    delete openTabsStartTime[tabId];
+    return;
+  }
+
+  const elapsedSeconds = Math.floor(elapsedMs / 1000);
 
   if (elapsedSeconds > 0) {
     addTimeToUrl(tabInfo.url, 'open', elapsedSeconds);
@@ -580,10 +603,30 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === CALENDAR_SYNC_ALARM) {
     await syncCalendarEvents();
   } else if (alarm.name === URL_TIME_SAVE_ALARM) {
-    // Periodic save of active and open time
+    const now = Date.now();
+    const timeSinceLastAlarm = now - lastAlarmTime;
+
+    // Check for sleep: if more time passed than expected, system was likely asleep
+    if (timeSinceLastAlarm > MAX_EXPECTED_ALARM_GAP_MS) {
+      console.log(`Sleep detected: ${Math.round(timeSinceLastAlarm / 1000)}s gap. Resetting timestamps without adding sleep time.`);
+
+      // Reset timestamps to now WITHOUT finalizing (don't count sleep as open time)
+      lastActiveTimestamp = windowFocused ? now : null;
+      for (const tabId of Object.keys(openTabsStartTime)) {
+        openTabsStartTime[tabId] = now;
+      }
+      lastAlarmTime = now;
+
+      // Still flush any pending data from before sleep
+      await flushTimeData();
+      return;
+    }
+
+    lastAlarmTime = now;
+
+    // Normal case: finalize and save time
     finalizeActiveTabTime(); // Accumulates in memory (synchronous)
     // Finalize all background tabs' open time and restart their tracking
-    const now = Date.now();
     for (const tabId of Object.keys(openTabsStartTime)) {
       const numTabId = parseInt(tabId);
       finalizeOpenTime(numTabId); // Accumulates in memory (synchronous)
