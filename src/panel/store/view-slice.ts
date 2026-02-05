@@ -1,6 +1,14 @@
 import { StateCreator } from 'zustand';
 import type { ViewMode } from '@shared/types';
 
+type ExpandedViewType = 'cell' | 'domain' | 'day' | 'hour' | 'full' | null;
+
+interface ExpandedViewData {
+  domain?: string;
+  date?: string;
+  hour?: string;
+}
+
 /**
  * View state slice of the store
  * Manages view mode, expanded view state, and UI settings
@@ -12,12 +20,8 @@ export interface ViewSlice {
   currentHour: string | null;
   searchQuery: string;
   isExpandedViewOpen: boolean;
-  expandedViewType: 'day' | 'hour' | 'domain' | 'full' | null;
-  expandedViewData: {
-    domain?: string;
-    date?: string;
-    hour?: string;
-  } | null;
+  expandedViewType: ExpandedViewType;
+  expandedViewData: ExpandedViewData | null;
   zoomLevel: number;
 
   // Actions
@@ -25,10 +29,7 @@ export interface ViewSlice {
   setCurrentDate: (date: string) => void;
   setCurrentHour: (hour: string | null) => void;
   setSearchQuery: (query: string) => void;
-  openExpandedView: (
-    type: 'day' | 'hour' | 'domain' | 'full',
-    data?: { domain?: string; date?: string; hour?: string }
-  ) => void;
+  openExpandedView: (type: ExpandedViewType, data?: ExpandedViewData) => void;
   closeExpandedView: () => void;
   setZoomLevel: (level: number) => void;
 }
