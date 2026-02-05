@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "Bullet History",
+  "version": "1.1.0",
+  "description": "Visual bullet journal for browsing history with Google Calendar integration",
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "permissions": [
+    "history",
+    "storage",
+    "bookmarks",
+    "sidePanel",
+    "tabs",
+    "identity",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://www.googleapis.com/*"
+  ],
+  "oauth2": {
+    "client_id": "596343023740-gbdifhp64ffev7vfrv6tiiccfgk59svn.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/userinfo.email"
+    ]
+  },
+  "side_panel": {
+    "default_path": "src/panel/index.html"
+  },
+  "action": {
+    "default_title": "Open Bullet History",
+    "default_icon": {
+      "16": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    }
+  },
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  }
+}
