@@ -535,8 +535,11 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
 });
 
 // Initialize: Load existing tabs into the map
-chrome.storage.local.get(['openTabs'], (result) => {
+chrome.storage.local.get(['openTabs', 'lastAlarmTime'], (result) => {
   const storedTabs = result.openTabs || {};
+  // Use persisted lastAlarmTime so open tracking spans service worker restarts
+  const storedAlarmTime = result.lastAlarmTime || Date.now();
+  lastAlarmTime = storedAlarmTime;
 
   chrome.tabs.query({}, async (tabs) => {
     let activeTab = null;
@@ -563,16 +566,17 @@ chrome.storage.local.get(['openTabs'], (result) => {
     await chrome.storage.local.set({ openTabs: openTabsInMemory });
 
     // Initialize time tracking
+    // Use storedAlarmTime as the start point so elapsed time reflects
+    // the real gap since the last alarm, not just time since SW restart
     if (activeTab && activeTab.url && !shouldSkipUrl(activeTab.url)) {
       currentActiveTabId = activeTab.id;
       currentActiveUrl = activeTab.url;
-      lastActiveTimestamp = Date.now();
+      lastActiveTimestamp = storedAlarmTime;
 
       // Start open tracking for all other open tabs (background tabs)
-      const now = Date.now();
       for (const [tabId, tabInfo] of activeTabs) {
         if (tabId !== activeTab.id && !shouldSkipUrl(tabInfo.url)) {
-          openTabsStartTime[tabId] = now;
+          openTabsStartTime[tabId] = storedAlarmTime;
         }
       }
     }
@@ -615,6 +619,11 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === CALENDAR_SYNC_ALARM) {
     await syncCalendarEvents();
   } else if (alarm.name === URL_TIME_SAVE_ALARM) {
+    // Wait for initialization to complete (tab data must be loaded first)
+    if (!timeTrackingInitialized) {
+      await initPromise;
+    }
+
     const now = Date.now();
     const timeSinceLastAlarm = now - lastAlarmTime;
 
@@ -627,6 +636,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
         openTabsStartTime[tabId] = now;
       }
       lastAlarmTime = now;
+      await chrome.storage.local.set({ lastAlarmTime: now });
 
       // Still flush any pending data from before sleep
       await flushTimeData();
@@ -634,6 +644,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     }
 
     lastAlarmTime = now;
+    await chrome.storage.local.set({ lastAlarmTime: now });
 
     // Normal case: finalize and save time
     finalizeActiveTabTime(); // Accumulates in memory (synchronous)
@@ -678,8 +689,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }
         }
 
-        // Flush to storage
+        // Flush to storage and persist alarm time for SW restart recovery
+        lastAlarmTime = now;
         await flushTimeData();
+        await chrome.storage.local.set({ lastAlarmTime: now });
 
         sendResponse({ success: true });
       } catch (e) {
