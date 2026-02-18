@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Bullet History",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Visual bullet journal for browsing history with Google Calendar integration",
   "icons": {
     "16": "icon.png",

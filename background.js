@@ -339,6 +339,9 @@ chrome.tabs.onCreated.addListener(async (tab) => {
     };
     activeTabs.set(tab.id, tabInfo);
 
+    // Seed 1 second so open time shows immediately (before first alarm tick)
+    addTimeToUrl(tab.url, 'open', 1);
+
     // Cache favicon
     await cacheFavicon(tab.url, tab.favIconUrl);
 
@@ -371,6 +374,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
     // Handle URL change for time tracking (SPA navigation)
     if (changeInfo.url && oldUrl !== changeInfo.url) {
+      // Seed 1 second so open time shows immediately (before first alarm tick)
+      if (!shouldSkipUrl(changeInfo.url)) {
+        addTimeToUrl(changeInfo.url, 'open', 1);
+      }
+
       if (tabId === currentActiveTabId) {
         // Active tab URL changed - finalize time for old URL, start tracking new URL
         finalizeActiveTabTime();

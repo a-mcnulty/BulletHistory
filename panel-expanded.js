@@ -1074,44 +1074,25 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date) {
       }
     };
 
-    if (openedAt) {
-      // URL is currently open - calculate today's open time
-      const now = Date.now();
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const todayStartMs = todayStart.getTime();
+    {
+      // Use only stored accumulated time (background script handles sleep detection)
+      const cachedTimeData = this.getCachedUrlTimeData(urlData.url);
+      const applyTimeSpan = (timeData) => {
+        if (timeData && timeData.openTodaySeconds > 0) {
+          timeSpan.textContent = formatOpenToday(timeData.openTodaySeconds);
+          timeSpan.title = `Open today: ${formatOpenToday(timeData.openTodaySeconds)}`;
+        } else if (timeData && timeData.openSeconds > 0) {
+          timeSpan.textContent = formatOpenToday(timeData.openSeconds);
+          timeSpan.title = `Total open: ${formatOpenToday(timeData.openSeconds)}`;
+          timeSpan.classList.add('total-open-time');
+        }
+      };
 
-      let liveOpenToday;
-      if (openedAt >= todayStartMs) {
-        // Tab was opened today - all live time counts as today
-        liveOpenToday = Math.floor((now - openedAt) / 1000);
+      if (cachedTimeData !== null) {
+        applyTimeSpan(cachedTimeData);
       } else {
-        // Tab was opened before today - only time since midnight counts as today
-        liveOpenToday = Math.floor((now - todayStartMs) / 1000);
-      }
-
-      const cachedTimeData = this.getCachedUrlTimeData(urlData.url);
-      const storedOpenToday = cachedTimeData?.openTodaySeconds || 0;
-      const openTodayTotal = storedOpenToday + liveOpenToday;
-
-      timeSpan.textContent = formatOpenToday(openTodayTotal);
-      timeSpan.title = `Open today: ${formatOpenToday(openTodayTotal)}`;
-    } else {
-      // URL is not currently open - use stored time data for today
-      const cachedTimeData = this.getCachedUrlTimeData(urlData.url);
-      if (cachedTimeData !== null && cachedTimeData.openTodaySeconds > 0) {
-        timeSpan.textContent = formatOpenToday(cachedTimeData.openTodaySeconds);
-        timeSpan.title = `Open today: ${formatOpenToday(cachedTimeData.openTodaySeconds)}`;
-      }
-
-      // Always load to populate cache for future renders (if not already cached)
-      if (cachedTimeData === null && this.urlTimeCache[urlData.url] === undefined) {
-        this.loadUrlTimeData(urlData.url).then(timeData => {
-          if (timeData && timeData.openTodaySeconds > 0) {
-            timeSpan.textContent = formatOpenToday(timeData.openTodaySeconds);
-            timeSpan.title = `Open today: ${formatOpenToday(timeData.openTodaySeconds)}`;
-          }
-        });
+        delete this.urlTimeCache[urlData.url];
+        this.loadUrlTimeData(urlData.url).then(applyTimeSpan);
       }
     }
 
@@ -1435,47 +1416,27 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date) {
     urlDisplay.appendChild(totalsSection);
 
     // Helper to populate time rows
-    const populateTimeRows = (timeData, liveOpenToday = 0, liveTotalOpen = 0) => {
-      const openToday = (timeData?.openTodaySeconds || 0) + liveOpenToday;
+    const populateTimeRows = (timeData) => {
+      const openToday = timeData?.openTodaySeconds || 0;
       const activeToday = timeData?.activeTodaySeconds || 0;
-      const totalOpen = (timeData?.openSeconds || 0) + liveTotalOpen;
+      const totalOpen = timeData?.openSeconds || 0;
       const totalActive = timeData?.activeSeconds || 0;
 
       activeTodayRow.innerHTML = `<span class="meta-label">Active Time:</span> ${formatTimeDisplay(activeToday)}`;
       openTodayRow.innerHTML = `<span class="meta-label">Open Time:</span> ${formatTimeDisplay(openToday)}`;
       totalActiveRow.innerHTML = `<span class="meta-label">Total Active Time:</span> ${formatTimeDisplay(totalActive)}`;
-      totalOpenRow.innerHTML = `<span class="meta-label">Total Open Time:</span> ${formatTimeDisplay(totalOpen)}`;
+      totalOpenRow.innerHTML = `<span class="meta-label">Total Open Time:</span> <span class="total-open-time">${formatTimeDisplay(totalOpen)}</span>`;
     };
 
-    // Calculate live open time for currently open tabs
-    if (openedAt) {
-      const now = Date.now();
-      const liveTotalOpen = Math.floor((now - openedAt) / 1000);
-
-      // Calculate how much of that is "today"
-      const todayStartMs = DateUtils.getTodayStartMs();
-
-      let liveOpenToday;
-      if (openedAt >= todayStartMs) {
-        // Tab was opened today - all live time counts as today
-        liveOpenToday = liveTotalOpen;
-      } else {
-        // Tab was opened before today - only time since midnight counts as today
-        liveOpenToday = Math.floor((now - todayStartMs) / 1000);
-      }
-
-      const cachedTime = this.getCachedUrlTimeData(urlData.url);
-      populateTimeRows(cachedTime, liveOpenToday, liveTotalOpen);
-    } else {
-      // URL is not currently open - use stored time data only
+    // Use only stored accumulated time (background script handles sleep detection)
+    {
       const cachedTime = this.getCachedUrlTimeData(urlData.url);
       if (cachedTime !== null) {
         populateTimeRows(cachedTime);
-      } else if (this.urlTimeCache[urlData.url] === undefined) {
-        // Load async if not yet cached
-        this.loadUrlTimeData(urlData.url).then(data => populateTimeRows(data));
       } else {
-        populateTimeRows(null);
+        // Clear stale null cache entry so loadUrlTimeData does a fresh read
+        delete this.urlTimeCache[urlData.url];
+        this.loadUrlTimeData(urlData.url).then(data => populateTimeRows(data));
       }
     }
 

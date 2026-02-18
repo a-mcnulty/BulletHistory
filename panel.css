@@ -802,6 +802,7 @@ body {
   gap: 6px;
   color: #999;
   flex-shrink: 0;
+  padding-top: 2px;
 }
 
 .url-item-count {
@@ -815,9 +816,12 @@ body {
   font-size: 10px;
   color: #7cb342;
   margin-left: 4px;
-  cursor: help;
   min-width: 24px;
   text-align: right;
+}
+
+.total-open-time {
+  color: #ab7fdb;
 }
 
 .url-time-meta:empty {

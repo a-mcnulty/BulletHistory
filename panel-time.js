@@ -17,6 +17,9 @@ BulletHistory.prototype.loadUrlTimeData = async function(url) {
     }
 
     try {
+      // Request background to save current time data before reading
+      await chrome.runtime.sendMessage({ type: 'saveCurrentTimeData' }).catch(() => {});
+
       const result = await chrome.storage.local.get(['urlTimeData']);
       const urlTimeData = result.urlTimeData || {};
       const urlHash = this.hashUrl(url);
