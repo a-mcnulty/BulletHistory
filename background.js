@@ -342,6 +342,11 @@ chrome.tabs.onCreated.addListener(async (tab) => {
     // Seed 1 second so open time shows immediately (before first alarm tick)
     addTimeToUrl(tab.url, 'open', 1);
 
+    // Start open time tracking for background tabs
+    if (!tab.active) {
+      openTabsStartTime[tab.id] = Date.now();
+    }
+
     // Cache favicon
     await cacheFavicon(tab.url, tab.favIconUrl);
 
@@ -384,9 +389,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
         finalizeActiveTabTime();
         currentActiveUrl = changeInfo.url;
         lastActiveTimestamp = windowFocused ? Date.now() : null;
-      } else if (openTabsStartTime[tabId]) {
-        // Background tab URL changed - finalize open time for old URL, restart open tracking
-        finalizeOpenTime(tabId);
+      } else {
+        // Background tab URL changed - finalize open time for old URL, start/restart open tracking
+        if (openTabsStartTime[tabId]) {
+          finalizeOpenTime(tabId);
+        }
         openTabsStartTime[tabId] = Date.now();
       }
     }
