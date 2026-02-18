@@ -1081,22 +1081,26 @@ body {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  background: none;
-  border: none;
+  margin: 0px 8px;
+  background: #f7f7f7;
+  border: 1px solid #e0e0e0;
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 4px;
-  transition: background 0.15s ease;
+  padding: 5px 10px;
+  border-radius: 6px;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
   flex: 1;
   max-width: none;
 }
 
 .menu-btn:hover {
-  background: #f5f5f5;
+  background: #ebebeb;
+  border-color: #ccc;
 }
 
 .menu-btn.active {
   background: #e3f2fd;
+  border-color: #90caf9;
+  box-shadow: 0 0 0 1px #90caf9 inset;
 }
 
 .menu-icon {
