@@ -35,6 +35,7 @@ export interface HistorySlice {
   getFavicon: (domain: string) => string;
   loadTimeData: () => Promise<void>;
   getUrlTimeData: (url: string) => { activeTime: number; openTime: number } | null;
+  deleteHistory: (domain: string) => Promise<void>;
 }
 
 /**
@@ -342,5 +343,35 @@ export const historySlice: StateCreator<HistorySlice> = (set, get) => ({
       return { activeTime: data.activeTime, openTime: data.openTime };
     }
     return null;
+  },
+  deleteHistory: async (domain) => {
+    const { historyData, sortedDomains, filteredDomains } = get();
+
+    // Delete all URLs for this domain from Chrome history
+    try {
+      const domainData = historyData[domain];
+      if (domainData) {
+        for (const dayData of Object.values(domainData.days)) {
+          for (const urlData of dayData.urls) {
+            await chrome.history.deleteUrl({ url: urlData.url });
+          }
+        }
+      }
+
+      // Update state
+      const newHistoryData = { ...historyData };
+      delete newHistoryData[domain];
+
+      const newSortedDomains = sortedDomains.filter((d) => d !== domain);
+      const newFilteredDomains = filteredDomains.filter((d) => d !== domain);
+
+      set({
+        historyData: newHistoryData,
+        sortedDomains: newSortedDomains,
+        filteredDomains: newFilteredDomains,
+      });
+    } catch (error) {
+      console.error('Failed to delete history for domain:', domain, error);
+    }
   },
 });

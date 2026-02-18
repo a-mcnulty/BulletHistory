@@ -1,8 +1,8 @@
-import { useRef, useCallback, useEffect, useState } from 'react';
+import { useRef, useCallback, useEffect, useState, useMemo } from 'react';
 import { useHistoryStore } from '../../store';
 import { useVirtualGrid } from '../../hooks/useVirtualGrid';
 import { DateHeader, getTodayStr } from './DateHeader';
-import type { SortMode } from '@shared/types';
+import type { SortMode, ViewMode } from '@shared/types';
 
 const BASE_ROW_HEIGHT = 21; // 18px cell + 3px gap
 const BASE_COL_WIDTH = 21; // 18px cell + 3px gap
@@ -23,24 +23,28 @@ export function VirtualGrid({ onDateClick }: VirtualGridProps) {
     colors,
     sortMode,
     searchQuery,
-    zoomLevel,
+    viewMode,
     openExpandedView,
     setSortMode,
     setSearchQuery,
-    setZoomLevel,
+    setViewMode,
     getFavicon,
+    deleteHistory,
   } = useHistoryStore();
 
   const dateHeaderRef = useRef<HTMLDivElement>(null);
   const tldColumnRef = useRef<HTMLDivElement>(null);
+  const tldResizeRef = useRef<HTMLDivElement>(null);
   const [localSearch, setLocalSearch] = useState(searchQuery);
   const [hoveredRowIndex, setHoveredRowIndex] = useState<number | null>(null);
   const [hoveredColIndex, setHoveredColIndex] = useState<number | null>(null);
+  const [tldWidth, setTldWidth] = useState(150);
+  const [isResizingTld, setIsResizingTld] = useState(false);
 
-  // Compute sizes based on zoom level
-  const ROW_HEIGHT = Math.round(BASE_ROW_HEIGHT * zoomLevel);
-  const COL_WIDTH = Math.round(BASE_COL_WIDTH * zoomLevel);
-  const CELL_SIZE = Math.round(18 * zoomLevel);
+  // Fixed sizes (no zoom for now to match original)
+  const ROW_HEIGHT = BASE_ROW_HEIGHT;
+  const COL_WIDTH = BASE_COL_WIDTH;
+  const CELL_SIZE = 18;
 
   const totalRows = filteredDomains.length;
   const totalCols = dates.length;
@@ -93,6 +97,27 @@ export function VirtualGrid({ onDateClick }: VirtualGridProps) {
     return () => clearTimeout(timer);
   }, [localSearch, setSearchQuery]);
 
+  // TLD column resize handling
+  useEffect(() => {
+    if (!isResizingTld) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const newWidth = Math.max(100, Math.min(300, e.clientX));
+      setTldWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizingTld(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizingTld]);
+
   const handleCellClick = useCallback((domain: string, dateStr: string) => {
     openExpandedView('cell', { domain, date: dateStr });
   }, [openExpandedView]);
@@ -118,13 +143,21 @@ export function VirtualGrid({ onDateClick }: VirtualGridProps) {
     setLocalSearch(e.target.value);
   }, []);
 
-  const handleZoomIn = useCallback(() => {
-    setZoomLevel(Math.min(2, zoomLevel + 0.25));
-  }, [zoomLevel, setZoomLevel]);
+  const handleViewToggle = useCallback((mode: ViewMode) => {
+    setViewMode(mode);
+  }, [setViewMode]);
 
-  const handleZoomOut = useCallback(() => {
-    setZoomLevel(Math.max(0.5, zoomLevel - 0.25));
-  }, [zoomLevel, setZoomLevel]);
+  const handleTldResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizingTld(true);
+  }, []);
+
+  const handleDeleteDomain = useCallback((e: React.MouseEvent, domain: string) => {
+    e.stopPropagation();
+    if (deleteHistory) {
+      deleteHistory(domain);
+    }
+  }, [deleteHistory]);
 
   if (totalRows === 0 && !searchQuery) {
     return (
@@ -135,11 +168,27 @@ export function VirtualGrid({ onDateClick }: VirtualGridProps) {
   }
 
   return (
-    <div className="grid-container">
+    <div className={`grid-container ${isResizingTld ? 'resizing' : ''}`}>
       {/* Header Section */}
       <div className="header-section">
-        {/* Header spacer (sort/search controls) */}
-        <div className="header-spacer">
+        {/* Header spacer (controls) */}
+        <div className="header-spacer" style={{ width: tldWidth }}>
+          <div className="header-controls">
+            <div className="view-toggle">
+              <button
+                className={`view-toggle-btn ${viewMode === 'hour' ? 'active' : ''}`}
+                onClick={() => handleViewToggle('hour')}
+              >
+                Hour
+              </button>
+              <button
+                className={`view-toggle-btn ${viewMode === 'day' ? 'active' : ''}`}
+                onClick={() => handleViewToggle('day')}
+              >
+                Day
+              </button>
+            </div>
+          </div>
           <input
             type="text"
             className="search-input"
@@ -152,29 +201,10 @@ export function VirtualGrid({ onDateClick }: VirtualGridProps) {
             value={sortMode}
             onChange={handleSortChange}
           >
-            <option value="recent">Recent</option>
-            <option value="count">Most Visited</option>
+            <option value="recent">Most Recent</option>
+            <option value="count">Most Popular</option>
             <option value="domain">Alphabetical</option>
           </select>
-          <div className="zoom-controls">
-            <button
-              className="zoom-btn"
-              onClick={handleZoomOut}
-              disabled={zoomLevel <= 0.5}
-              title="Zoom out"
-            >
-              −
-            </button>
-            <span className="zoom-level">{Math.round(zoomLevel * 100)}%</span>
-            <button
-              className="zoom-btn"
-              onClick={handleZoomIn}
-              disabled={zoomLevel >= 2}
-              title="Zoom in"
-            >
-              +
-            </button>
-          </div>
         </div>
 
         {/* Date header */}
@@ -192,7 +222,7 @@ export function VirtualGrid({ onDateClick }: VirtualGridProps) {
       {/* Main Section */}
       <div className="main-section">
         {/* TLD Column (domain names) */}
-        <div className="tld-column" ref={tldColumnRef}>
+        <div className="tld-column" ref={tldColumnRef} style={{ width: tldWidth }}>
           <div
             className="virtual-spacer"
             style={{ height: totalHeight, width: 1 }}
@@ -231,12 +261,27 @@ export function VirtualGrid({ onDateClick }: VirtualGridProps) {
                       height={16}
                     />
                     <span className="tld-name">{domain}</span>
+                    <button
+                      className="tld-delete-btn"
+                      title="Delete all history for this domain"
+                      onClick={(e) => handleDeleteDomain(e, domain)}
+                    >
+                      🗑️
+                    </button>
                   </div>
                 );
               }
             )
           )}
         </div>
+
+        {/* TLD Resize Handle */}
+        <div
+          className="tld-resize-handle"
+          ref={tldResizeRef}
+          style={{ left: tldWidth }}
+          onMouseDown={handleTldResizeStart}
+        />
 
         {/* Cell Grid */}
         <div
@@ -262,10 +307,12 @@ export function VirtualGrid({ onDateClick }: VirtualGridProps) {
 
                 const todayIndex = dates.indexOf(todayStr);
 
+                const isFirstRow = rowIndex === virtualState.startRow;
+
                 return (
                   <div
                     key={domain}
-                    className={`cell-row ${todayIndex !== -1 ? 'has-today-col' : ''} ${hoveredRowIndex === rowIndex ? 'row-hover' : ''}`}
+                    className={`cell-row ${todayIndex !== -1 ? 'has-today-col' : ''} ${isFirstRow && todayIndex !== -1 ? 'first-row-today' : ''} ${hoveredRowIndex === rowIndex ? 'row-hover' : ''}`}
                     data-row-index={rowIndex}
                     style={{
                       position: 'absolute',

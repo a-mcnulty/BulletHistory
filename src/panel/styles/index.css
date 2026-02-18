@@ -107,6 +107,47 @@ body {
   flex-shrink: 0;
 }
 
+/* Header controls row */
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* View toggle */
+.view-toggle {
+  display: flex;
+  border: 1px solid #e0e0e0;
+  border-radius: 3px;
+  overflow: hidden;
+  flex: 1;
+}
+
+.view-toggle-btn {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 10px;
+  font-family: inherit;
+  background: #fff;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  color: #666;
+}
+
+.view-toggle-btn:first-child {
+  border-right: 1px solid #e0e0e0;
+}
+
+.view-toggle-btn:hover {
+  background: #f0f0f0;
+}
+
+.view-toggle-btn.active {
+  background: #4285f4;
+  color: white;
+}
+
 .search-input {
   width: 100%;
   padding: 6px 8px;
@@ -303,6 +344,84 @@ body {
   background: rgba(101, 147, 185, 0.18);
 }
 
+/* Hour View Styles */
+.grid-container.hour-view .date-header-inner {
+  flex-direction: column;
+}
+
+.hour-view-day-banner {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 0;
+  cursor: default;
+}
+
+.hour-view-day-banner:hover {
+  background: transparent;
+}
+
+.hour-view-month-year {
+  font-weight: 700;
+  font-size: 11px;
+  color: #4285f4;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.hour-view-month-year:hover {
+  opacity: 0.7;
+}
+
+.hour-view-weekday-day {
+  font-weight: 600;
+  font-size: 10px;
+  color: #666;
+}
+
+/* Hour cells with two lines */
+.hour-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 0 4px 0;
+}
+
+.hour-ampm {
+  font-size: 8px;
+  font-weight: 500;
+  color: #999;
+}
+
+.hour-num {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Back button */
+.back-btn {
+  padding: 4px 8px;
+  font-size: 10px;
+  font-family: inherit;
+  color: #4285f4;
+  background: transparent;
+  border: 1px solid #e0e0e0;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+}
+
+.back-btn:hover {
+  background: #f0f0f0;
+}
+
 /* Main Section */
 .main-section {
   display: flex;
@@ -372,6 +491,60 @@ body {
   text-overflow: ellipsis;
 }
 
+/* TLD Delete Button */
+.tld-delete-btn {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 12px;
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+  flex-shrink: 0;
+}
+
+.tld-row:hover .tld-delete-btn {
+  display: block;
+}
+
+.tld-delete-btn:hover {
+  opacity: 1;
+}
+
+/* TLD Column Resize Handle */
+.tld-resize-handle {
+  width: 4px;
+  background: transparent;
+  cursor: col-resize;
+  position: relative;
+  z-index: 101;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+
+.tld-resize-handle:hover {
+  background: #999;
+}
+
+.tld-resize-handle:active,
+.grid-container.resizing .tld-resize-handle {
+  background: #666;
+}
+
+.grid-container.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.grid-container.resizing * {
+  pointer-events: none;
+}
+
+.grid-container.resizing .tld-resize-handle {
+  pointer-events: auto;
+}
+
 /* Cell Grid */
 .cell-grid-wrapper {
   flex: 1;
@@ -413,13 +586,18 @@ body {
 .cell-row.has-today-col::before {
   content: '';
   position: absolute;
-  top: 0;
-  bottom: 0;
+  top: -1.5px;
+  bottom: -1.5px;
   left: var(--today-col-left);
   width: 20px;
   background: rgba(101, 147, 185, 0.18);
   pointer-events: none;
   z-index: 0;
+}
+
+/* First row extends highlight up into header area */
+.cell-row.has-today-col.first-row-today::before {
+  top: -11.5px;
 }
 
 .cell {
