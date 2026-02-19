@@ -723,6 +723,41 @@ body {
   background: #fafafa;
 }
 
+.expanded-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.refresh-btn {
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: #999;
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.refresh-btn:hover {
+  color: #333;
+  background: #f0f0f0;
+}
+
+.refresh-btn.spinning {
+  animation: spin 0.6s ease;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .close-btn {
   background: none;
   border: none;

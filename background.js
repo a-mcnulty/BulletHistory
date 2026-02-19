@@ -56,7 +56,7 @@ let pendingUrlHashes = {}; // New URL hash mappings to add
 
 // Sleep detection: track last alarm time to detect system sleep
 let lastAlarmTime = Date.now();
-const MAX_EXPECTED_ALARM_GAP_MS = 90000; // 90 seconds (alarm is every 60s, allow 30s buffer)
+const MAX_EXPECTED_ALARM_GAP_MS = 300000; // 5 minutes (alarm is every 60s, but Chrome MV3 can delay significantly)
 
 // djb2 hash function, returns 8-char hex string
 function hashUrl(url) {
@@ -173,16 +173,7 @@ function finalizeActiveTabTime() {
   if (!currentActiveUrl || !lastActiveTimestamp || !windowFocused) return;
 
   const now = Date.now();
-  const elapsedMs = now - lastActiveTimestamp;
-
-  // Skip if elapsed time suggests system was asleep (> 90 seconds since last update)
-  // This can happen if tab switch occurs right after wake
-  if (elapsedMs > MAX_EXPECTED_ALARM_GAP_MS) {
-    lastActiveTimestamp = now;
-    return;
-  }
-
-  const elapsedSeconds = Math.floor(elapsedMs / 1000);
+  const elapsedSeconds = Math.floor((now - lastActiveTimestamp) / 1000);
 
   if (elapsedSeconds > 0) {
     // Active time contributes to both 'a' (active) AND 'o' (open)
@@ -203,16 +194,7 @@ function finalizeOpenTime(tabId) {
     return;
   }
 
-  const now = Date.now();
-  const elapsedMs = now - startTime;
-
-  // Skip if elapsed time suggests system was asleep (> 90 seconds since last update)
-  if (elapsedMs > MAX_EXPECTED_ALARM_GAP_MS) {
-    delete openTabsStartTime[tabId];
-    return;
-  }
-
-  const elapsedSeconds = Math.floor(elapsedMs / 1000);
+  const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
 
   if (elapsedSeconds > 0) {
     addTimeToUrl(tabInfo.url, 'open', elapsedSeconds);
@@ -288,6 +270,29 @@ async function pruneOldTimeData() {
   } catch (e) {
     console.warn('Failed to prune URL time data:', e);
   }
+}
+
+// Finalize all time tracking, restart background tab tracking, and flush to storage.
+// Used by both the alarm handler and saveCurrentTimeData to avoid duplication.
+async function finalizeAllAndFlush() {
+  const now = Date.now();
+
+  // Finalize active tab time
+  finalizeActiveTabTime();
+
+  // Finalize all background tabs' open time and restart their tracking
+  for (const tabId of Object.keys(openTabsStartTime)) {
+    const numTabId = parseInt(tabId);
+    finalizeOpenTime(numTabId);
+    if (activeTabs.has(numTabId) && numTabId !== currentActiveTabId) {
+      openTabsStartTime[numTabId] = now;
+    }
+  }
+
+  // Persist alarm time for SW restart recovery, then flush
+  lastAlarmTime = now;
+  await flushTimeData();
+  await chrome.storage.local.set({ lastAlarmTime: now });
 }
 
 // Favicon cache settings
@@ -643,22 +648,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       return;
     }
 
-    lastAlarmTime = now;
-    await chrome.storage.local.set({ lastAlarmTime: now });
-
-    // Normal case: finalize and save time
-    finalizeActiveTabTime(); // Accumulates in memory (synchronous)
-    // Finalize all background tabs' open time and restart their tracking
-    for (const tabId of Object.keys(openTabsStartTime)) {
-      const numTabId = parseInt(tabId);
-      finalizeOpenTime(numTabId); // Accumulates in memory (synchronous)
-      // Restart open tracking if tab is still open (and not the active tab)
-      if (activeTabs.has(numTabId) && numTabId !== currentActiveTabId) {
-        openTabsStartTime[numTabId] = now;
-      }
-    }
-    // Flush accumulated time data to storage (single I/O operation)
-    await flushTimeData();
+    // Normal case: finalize and flush all time data
+    await finalizeAllAndFlush();
   } else if (alarm.name === URL_TIME_PRUNE_ALARM) {
     await pruneOldTimeData();
   }
@@ -675,24 +666,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           await initPromise;
         }
 
-        // Accumulate active tab time
-        finalizeActiveTabTime();
-
-        // Finalize all background tabs' open time and restart their tracking
-        const now = Date.now();
-        for (const tabId of Object.keys(openTabsStartTime)) {
-          const numTabId = parseInt(tabId);
-          finalizeOpenTime(numTabId);
-          // Restart open tracking if tab is still open (and not the active tab)
-          if (activeTabs.has(numTabId) && numTabId !== currentActiveTabId) {
-            openTabsStartTime[numTabId] = now;
-          }
-        }
-
-        // Flush to storage and persist alarm time for SW restart recovery
-        lastAlarmTime = now;
-        await flushTimeData();
-        await chrome.storage.local.set({ lastAlarmTime: now });
+        await finalizeAllAndFlush();
 
         sendResponse({ success: true });
       } catch (e) {

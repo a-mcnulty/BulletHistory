@@ -184,61 +184,68 @@ class BulletHistory {
 
   // Detect when the date changes and update the header
   setupDateChangeDetection() {
-    // Store the current date
+    // Store the current date and hour
     let lastDate = this.formatDate(new Date());
+    let lastHour = DateUtils.getCurrentHourISO();
+
+    const checkForChanges = () => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const currentDate = this.formatDate(today);
+      const currentHour = DateUtils.getCurrentHourISO();
+
+      const dateChanged = currentDate !== lastDate;
+      const hourChanged = currentHour !== lastHour;
+
+      if (dateChanged) lastDate = currentDate;
+      if (hourChanged) lastHour = currentHour;
+
+      return { dateChanged, hourChanged };
+    };
 
     // Update when the page becomes visible again
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const currentDate = this.formatDate(today);
+        const { dateChanged, hourChanged } = checkForChanges();
 
-        if (currentDate !== lastDate) {
-          // Date changed while user was away!
-          lastDate = currentDate;
+        if (dateChanged || (hourChanged && this.viewMode === 'hour')) {
           this.renderDateHeader();
           this.updateVirtualGrid();
-          // Scroll based on view mode
-          if (this.viewMode === 'hour') {
-            this.scrollToCurrentHour();
-          } else {
-            this.scrollToToday();
-          }
+        }
+
+        // Scroll to appropriate position
+        if (this.viewMode === 'hour') {
+          this.scrollToCurrentHour();
         } else {
-          // Date hasn't changed, but still scroll to appropriate position
-          if (this.viewMode === 'hour') {
-            this.scrollToCurrentHour();
-          } else {
-            this.scrollToToday();
-          }
+          this.scrollToToday();
         }
       }
     });
 
-    // Also check on focus (when side panel is opened)
-    window.addEventListener('focus', () => {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const currentDate = this.formatDate(today);
-
-      if (currentDate !== lastDate) {
-        lastDate = currentDate;
+    // Periodically check for hour changes while panel is open (hour view)
+    setInterval(() => {
+      if (this.viewMode !== 'hour') return;
+      const { hourChanged } = checkForChanges();
+      if (hourChanged) {
         this.renderDateHeader();
         this.updateVirtualGrid();
-        // Scroll based on view mode
-        if (this.viewMode === 'hour') {
-          this.scrollToCurrentHour();
-        } else {
-          this.scrollToToday();
-        }
+      }
+    }, 30000); // Check every 30 seconds
+
+    // Also check on focus (when side panel is opened)
+    window.addEventListener('focus', () => {
+      const { dateChanged, hourChanged } = checkForChanges();
+
+      if (dateChanged || (hourChanged && this.viewMode === 'hour')) {
+        this.renderDateHeader();
+        this.updateVirtualGrid();
+      }
+
+      // Scroll to appropriate position
+      if (this.viewMode === 'hour') {
+        this.scrollToCurrentHour();
       } else {
-        // Date hasn't changed, but still scroll to appropriate position
-        if (this.viewMode === 'hour') {
-          this.scrollToCurrentHour();
-        } else {
-          this.scrollToToday();
-        }
+        this.scrollToToday();
       }
     });
   }

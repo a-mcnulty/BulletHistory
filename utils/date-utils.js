@@ -123,13 +123,23 @@ function formatSecondsDisplay(seconds) {
   if (seconds >= 86400) {
     const d = Math.floor(seconds / 86400);
     const h = Math.floor((seconds % 86400) / 3600);
-    return h > 0 ? `${d}d ${h}h` : `${d}d`;
+    const m = Math.floor((seconds % 3600) / 60);
+    const parts = [`${d}d`];
+    if (h > 0) parts.push(`${h}h`);
+    if (m > 0) parts.push(`${m}m`);
+    return parts.join(' ');
   } else if (seconds >= 3600) {
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
-    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+    const s = seconds % 60;
+    const parts = [`${h}h`];
+    if (m > 0) parts.push(`${m}m`);
+    if (s > 0) parts.push(`${s}s`);
+    return parts.join(' ');
   } else if (seconds >= 60) {
-    return `${Math.floor(seconds / 60)}m`;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return s > 0 ? `${m}m ${s}s` : `${m}m`;
   } else {
     return `${seconds}s`;
   }

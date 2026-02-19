@@ -1202,6 +1202,24 @@ BulletHistory.prototype.setupCellClick = function() {
       this.closeExpandedView();
     });
 
+    // Refresh time data button
+    const refreshBtn = document.getElementById('refreshTimeData');
+    refreshBtn.addEventListener('animationend', () => {
+      refreshBtn.classList.remove('spinning');
+    });
+    refreshBtn.addEventListener('click', async () => {
+      // Restart animation
+      refreshBtn.classList.remove('spinning');
+      void refreshBtn.offsetWidth;
+      refreshBtn.classList.add('spinning');
+
+      await this.refreshUrlTimeCache();
+      this.updateVirtualGrid();
+
+      // Re-render the current expanded view with fresh data
+      this.refreshExpandedView();
+    });
+
     // Keyboard navigation (arrow keys)
     document.addEventListener('keydown', (e) => {
       if (expandedView.style.display !== 'block') return;

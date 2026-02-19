@@ -154,9 +154,9 @@ BulletHistory.prototype.showDomainView = async function(domain) {
       deleteBtn.textContent = 'delete all';
       deleteBtn.title = 'Delete all history for this domain';
 
-      // Insert before close button
-      const closeBtn = document.getElementById('closeExpanded');
-      expandedHeader.insertBefore(deleteBtn, closeBtn);
+      // Insert before the actions wrapper (refresh + close buttons)
+      const actionsWrapper = document.querySelector('.expanded-header-actions');
+      expandedHeader.insertBefore(deleteBtn, actionsWrapper);
     }
 
     // Update delete button click handler
@@ -235,7 +235,7 @@ BulletHistory.prototype.showExpandedView = async function(domain, date, count) {
 
       document.querySelector('.expanded-header').insertBefore(
         navContainer,
-        document.getElementById('closeExpanded')
+        document.querySelector('.expanded-header-actions')
       );
     }
 
@@ -1731,6 +1731,34 @@ BulletHistory.prototype.updateExpandedViewPadding = function() {
 };
 
 // Close expanded view with animation
+// Re-render the current expanded view with fresh time data
+BulletHistory.prototype.refreshExpandedView = function() {
+    const viewType = this.expandedViewType;
+    if (!viewType) return;
+
+    if (viewType === 'domain') {
+      this.showDomainView(this.currentDomain);
+    } else if (viewType === 'cell') {
+      if (this.viewMode === 'hour') {
+        this.showDomainHourView(this.currentDomain, this.currentHour);
+      } else {
+        this.showExpandedView(this.currentDomain, this.currentDate);
+      }
+    } else if (viewType === 'day') {
+      this.showDayExpandedView(this.currentDate);
+    } else if (viewType === 'hour') {
+      this.showHourExpandedView(this.currentHour);
+    } else if (viewType === 'full' || viewType === 'recent') {
+      this.showFullHistory();
+    } else if (viewType === 'active') {
+      this.showActiveTabs();
+    } else if (viewType === 'closed') {
+      this.showRecentlyClosed();
+    } else if (viewType === 'bookmarks') {
+      this.showBookmarks();
+    }
+};
+
 BulletHistory.prototype.closeExpandedView = function() {
     const expandedView = document.getElementById('expandedView');
 
