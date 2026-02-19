@@ -143,8 +143,14 @@ function hashUrl(url) {
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
+// Export for testing (Vitest)
+export {
+  extractDomain, isValidUrl, getHostname, getOrigin, hasValidProtocol,
+  getFaviconFallbackUrls, getGoogleFaviconUrl, isValidFaviconUrl, hashUrl
+};
+
 // Export functions to global scope for use in browser scripts
-window.UrlUtils = {
+if (typeof window !== 'undefined') window.UrlUtils = {
   extractDomain,
   isValidUrl,
   getHostname,
