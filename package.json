@@ -1,0 +1,27 @@
+{
+  "name": "bullethistory",
+  "version": "1.0.0",
+  "description": "A visual bullet journal for your browsing history.",
+  "main": "background.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/a-mcnulty/BulletHistory.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/a-mcnulty/BulletHistory/issues"
+  },
+  "homepage": "https://github.com/a-mcnulty/BulletHistory#readme",
+  "devDependencies": {
+    "vitest": "^4.0.18"
+  }
+}
