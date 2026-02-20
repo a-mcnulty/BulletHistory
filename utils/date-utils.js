@@ -184,13 +184,6 @@ function getTodayStartMs() {
   return today.getTime();
 }
 
-// Export for testing (Vitest)
-export {
-  formatDateISO, getTodayISO, formatHourISO, getCurrentHourISO,
-  parseHourString, formatDateForDisplay, formatHourLabel, formatDuration,
-  formatSecondsDisplay, formatTimestamp12Hour, getOrdinalSuffix, getTodayStartMs
-};
-
 // Export functions to global scope for use in browser scripts
 if (typeof window !== 'undefined') window.DateUtils = {
   formatDateISO,

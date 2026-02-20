@@ -974,15 +974,14 @@ body {
   right: 0;
   top: 100%;
   background: #fff;
-  padding: 8px 10px;
-  margin: 2px 0px;
+  padding: 10px 10px 8px;
   border-radius: 0 0 6px 6px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
   z-index: 100;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(-4px);
-  transition: opacity 0.45s ease, transform 0.45s ease;
+  transform: translateY(-2px);
+  transition: opacity .45s ease, transform 0.8s ease;
   max-width: 400px;
 }
 
@@ -1051,8 +1050,7 @@ body {
   color: #7cb342;
 }
 
-.url-title:hover ~ .url-display,
-.url-display:hover {
+.url-text-container:hover .url-display {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);
