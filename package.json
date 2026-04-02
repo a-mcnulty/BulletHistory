@@ -7,7 +7,8 @@
     "test": "tests"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "package": "rm -f bullet-history.zip && zip bullet-history.zip manifest.json icon.png background.js panel.html panel.css panel.js panel-grid.js panel-expanded.js panel-time.js panel-tabs.js panel-calendar.js calendar.js utils/date-utils.js utils/url-utils.js utils/time-tracking-utils.js privacy.html"
   },
   "repository": {
     "type": "git",

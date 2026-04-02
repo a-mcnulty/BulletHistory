@@ -1,4 +1,5 @@
 // Background service worker - handles extension icon clicks
+importScripts('utils/time-tracking-utils.js');
 
 // Enable native toggle behavior for the side panel
 chrome.sidePanel
@@ -58,14 +59,9 @@ let pendingUrlHashes = {}; // New URL hash mappings to add
 let lastAlarmTime = Date.now();
 const MAX_EXPECTED_ALARM_GAP_MS = 300000; // 5 minutes (alarm is every 60s, but Chrome MV3 can delay significantly)
 
-// djb2 hash function, returns 8-char hex string
+// Use shared hash function from time-tracking-utils.js
 function hashUrl(url) {
-  let hash = 5381;
-  for (let i = 0; i < url.length; i++) {
-    hash = ((hash << 5) + hash) ^ url.charCodeAt(i);
-  }
-  // Convert to unsigned 32-bit and then to hex
-  return (hash >>> 0).toString(16).padStart(8, '0');
+  return TimeTrackingUtils.hashUrlForTime(url);
 }
 
 function getTodayDateString() {
@@ -77,11 +73,7 @@ function getTodayDateString() {
 }
 
 function shouldSkipUrl(url) {
-  if (!url) return true;
-  return url.startsWith('chrome://') ||
-         url.startsWith('chrome-extension://') ||
-         url === 'about:blank' ||
-         url.startsWith('about:');
+  return TimeTrackingUtils.shouldSkipUrl(url);
 }
 
 function getCurrentHour() {
@@ -90,32 +82,11 @@ function getCurrentHour() {
 
 // Accumulate time in memory (no I/O) - will be flushed periodically
 function addTimeToUrl(url, timeType, seconds) {
-  if (shouldSkipUrl(url) || seconds <= 0) return;
-
-  const urlHash = hashUrl(url);
-  const dateStr = getTodayDateString();
-  const key = `${urlHash}:${dateStr}`;
-  const currentHour = getCurrentHour();
-
-  // Store URL hash mapping
-  if (!pendingUrlHashes[urlHash]) {
-    pendingUrlHashes[urlHash] = url;
-  }
-
-  // Initialize pending update if needed
-  if (!pendingTimeUpdates[key]) {
-    pendingTimeUpdates[key] = { a: 0, o: 0, h: new Set() };
-  }
-
-  // Accumulate time
-  if (timeType === 'active') {
-    pendingTimeUpdates[key].a += seconds;
-  } else if (timeType === 'open') {
-    pendingTimeUpdates[key].o += seconds;
-  }
-
-  // Track hour
-  pendingTimeUpdates[key].h.add(currentHour);
+  TimeTrackingUtils.accumulateTime(
+    pendingTimeUpdates, pendingUrlHashes,
+    url, timeType, seconds,
+    getTodayDateString(), getCurrentHour()
+  );
 }
 
 // Flush accumulated time data to storage
@@ -127,35 +98,15 @@ async function flushTimeData() {
 
   try {
     const result = await chrome.storage.local.get(['urlTimeData', 'urlHashes']);
-    const urlTimeData = result.urlTimeData || {};
-    const urlHashes = result.urlHashes || {};
-
-    // Merge pending URL hashes
-    for (const [hash, url] of Object.entries(pendingUrlHashes)) {
-      if (!urlHashes[hash]) {
-        urlHashes[hash] = url;
-      }
-    }
-
-    // Merge pending time updates
-    for (const [key, update] of Object.entries(pendingTimeUpdates)) {
-      if (!urlTimeData[key]) {
-        urlTimeData[key] = { a: 0, o: 0, h: [] };
-      }
-
-      urlTimeData[key].a += update.a;
-      urlTimeData[key].o += update.o;
-
-      // Merge hours (convert Set to array and merge)
-      const existingHours = new Set(urlTimeData[key].h || []);
-      for (const hour of update.h) {
-        existingHours.add(hour);
-      }
-      urlTimeData[key].h = Array.from(existingHours).sort((a, b) => a - b);
-    }
+    const merged = TimeTrackingUtils.mergeTimeData(
+      result.urlTimeData || {},
+      result.urlHashes || {},
+      pendingTimeUpdates,
+      pendingUrlHashes
+    );
 
     // Write merged data back to storage
-    await chrome.storage.local.set({ urlTimeData, urlHashes });
+    await chrome.storage.local.set({ urlTimeData: merged.urlTimeData, urlHashes: merged.urlHashes });
 
     // Clear pending updates
     for (const key of updateKeys) {
@@ -235,37 +186,15 @@ function startActiveTracking(tabId, url) {
 async function pruneOldTimeData() {
   try {
     const result = await chrome.storage.local.get(['urlTimeData', 'urlHashes']);
-    const urlTimeData = result.urlTimeData || {};
-    const urlHashes = result.urlHashes || {};
+    const pruned = TimeTrackingUtils.pruneOldEntries(
+      result.urlTimeData || {},
+      result.urlHashes || {},
+      MAX_DATA_AGE_DAYS,
+      new Date()
+    );
 
-    const now = new Date();
-    const cutoffDate = new Date(now);
-    cutoffDate.setDate(cutoffDate.getDate() - MAX_DATA_AGE_DAYS);
-
-    let pruned = false;
-    for (const key of Object.keys(urlTimeData)) {
-      // Key format: urlHash:YYYY-MM-DD
-      const datePart = key.split(':')[1];
-      if (datePart) {
-        const entryDate = new Date(datePart);
-        if (entryDate < cutoffDate) {
-          delete urlTimeData[key];
-          pruned = true;
-        }
-      }
-    }
-
-    // Clean up orphaned urlHashes (hashes with no remaining time data)
-    const usedHashes = new Set(Object.keys(urlTimeData).map(key => key.split(':')[0]));
-    for (const hash of Object.keys(urlHashes)) {
-      if (!usedHashes.has(hash)) {
-        delete urlHashes[hash];
-        pruned = true;
-      }
-    }
-
-    if (pruned) {
-      await chrome.storage.local.set({ urlTimeData, urlHashes });
+    if (pruned.pruned) {
+      await chrome.storage.local.set({ urlTimeData: pruned.urlTimeData, urlHashes: pruned.urlHashes });
     }
   } catch (e) {
     console.warn('Failed to prune URL time data:', e);
@@ -630,10 +559,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     }
 
     const now = Date.now();
-    const timeSinceLastAlarm = now - lastAlarmTime;
 
     // Check for sleep: if more time passed than expected, system was likely asleep
-    if (timeSinceLastAlarm > MAX_EXPECTED_ALARM_GAP_MS) {
+    if (TimeTrackingUtils.isSleepGap(lastAlarmTime, now, MAX_EXPECTED_ALARM_GAP_MS)) {
 
       // Reset timestamps to now WITHOUT finalizing (don't count sleep as open time)
       lastActiveTimestamp = windowFocused ? now : null;
