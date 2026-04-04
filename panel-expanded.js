@@ -39,6 +39,14 @@ BulletHistory.prototype.setupExpandedViewBase = function(options) {
   this.currentDate = date;
   this.currentHour = hour;
 
+  // Reset expand-all state
+  this.allExpanded = false;
+  const expandAllBtn = document.getElementById('expandAllBtn');
+  if (expandAllBtn) {
+    expandAllBtn.textContent = 'Expand All';
+    expandAllBtn.classList.remove('active');
+  }
+
   // Set active menu button
   this.setActiveMenuButton(activeButton);
 
@@ -485,8 +493,18 @@ BulletHistory.prototype.populateUrlItem = function(placeholder) {
       while (urlItem.firstChild) {
         placeholder.appendChild(urlItem.firstChild);  // Move (not copy) children
       }
-      placeholder.style.height = `${this.urlListRowHeight}px`;
       placeholder.style.boxSizing = 'border-box';
+
+      // If expand-all is active, auto-expand this item
+      if (this.allExpanded) {
+        placeholder.classList.add('expanded');
+        placeholder.style.height = 'auto';
+        // Trigger lazy-load of visit times
+        const expandBtn = placeholder.querySelector('.url-item-expand-btn');
+        if (expandBtn) expandBtn.dispatchEvent(new Event('_expand'));
+      } else {
+        placeholder.style.height = `${this.urlListRowHeight}px`;
+      }
 
       // For bookmarks view: make items draggable and droppable
       if (this.expandedViewType === 'bookmarks') {
@@ -731,8 +749,16 @@ BulletHistory.prototype.renderVisibleUrlItems = function(scrollContainer, conten
       } else {
         const urlData = row.data;
         const urlItem = this.createUrlItem(urlData, urlData.domain, urlData.date);
-        urlItem.style.height = `${this.urlListRowHeight}px`;
         urlItem.style.boxSizing = 'border-box';
+
+        if (this.allExpanded) {
+          urlItem.classList.add('expanded');
+          urlItem.style.height = 'auto';
+          const expandBtn = urlItem.querySelector('.url-item-expand-btn');
+          if (expandBtn) expandBtn.dispatchEvent(new Event('_expand'));
+        } else {
+          urlItem.style.height = `${this.urlListRowHeight}px`;
+        }
 
         // For bookmarks view: make items draggable and droppable
         if (this.expandedViewType === 'bookmarks') {
@@ -1466,14 +1492,77 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date) {
     urlTextContainer.appendChild(urlLink);
     urlTextContainer.appendChild(urlDisplay);
 
-    // Lazy-load visit times when hovering (url-display becomes visible on hover via CSS)
-    urlTextContainer.addEventListener('mouseenter', loadVisitTimes, { once: true });
-
     rightDiv.appendChild(favicon);
     rightDiv.appendChild(urlTextContainer);
 
+    // Expand/collapse button (chevron)
+    const expandBtn = document.createElement('button');
+    expandBtn.className = 'url-item-expand-btn';
+    expandBtn.textContent = '▶';
+    expandBtn.title = 'Expand details';
+
+    const toggleExpand = (item) => {
+      const isExpanding = !item.classList.contains('expanded');
+      item.classList.toggle('expanded');
+
+      // Lazy-load visit times on first expand
+      if (isExpanding) {
+        loadVisitTimes();
+      }
+
+      // Let height grow naturally when expanded
+      const placeholder = item.closest('.url-item-placeholder') || item;
+      placeholder.style.height = isExpanding ? 'auto' : `${this.urlListRowHeight}px`;
+    };
+
+    expandBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleExpand(e.target.closest('.url-item'));
+    });
+
+    // Listen for programmatic expand (from Expand All button)
+    expandBtn.addEventListener('_expand', () => {
+      loadVisitTimes();
+    });
+
+    // X button on the far right for quick delete/close/unbookmark
+    const xBtn = document.createElement('button');
+    xBtn.className = 'url-item-x-btn';
+    xBtn.textContent = '✕';
+
+    if (this.expandedViewType === 'active' && urlData.tabId) {
+      xBtn.title = 'Close tab';
+      xBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const item = e.target.closest('.url-item');
+        if (item) item.classList.add('deleting');
+        chrome.tabs.remove(urlData.tabId, () => {
+          setTimeout(() => this.showActiveTabs(), 250);
+        });
+      });
+    } else if (this.expandedViewType === 'bookmarks' && urlData.id) {
+      xBtn.title = 'Remove bookmark';
+      xBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const item = e.target.closest('.url-item');
+        if (item) item.classList.add('deleting');
+        chrome.bookmarks.remove(urlData.id, () => {
+          setTimeout(() => this.showBookmarks(), 250);
+        });
+      });
+    } else {
+      xBtn.title = 'Delete from history';
+      xBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const item = e.target.closest('.url-item');
+        this.deleteUrlWithAnimation(item, urlData.url, domain, date);
+      });
+    }
+
     urlItem.appendChild(leftDiv);
     urlItem.appendChild(rightDiv);
+    urlItem.appendChild(expandBtn);
+    urlItem.appendChild(xBtn);
 
     return urlItem;
 };

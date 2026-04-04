@@ -23,6 +23,7 @@
   },
   "homepage": "https://github.com/a-mcnulty/BulletHistory#readme",
   "devDependencies": {
+    "jsdom": "^29.0.1",
     "vitest": "^4.0.18"
   }
 }

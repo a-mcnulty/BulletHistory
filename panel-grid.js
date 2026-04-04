@@ -1220,6 +1220,31 @@ BulletHistory.prototype.setupCellClick = function() {
       this.refreshExpandedView();
     });
 
+    // Expand All / Collapse All button
+    const expandAllBtn = document.getElementById('expandAllBtn');
+    this.allExpanded = false;
+    expandAllBtn.addEventListener('click', () => {
+      this.allExpanded = !this.allExpanded;
+      expandAllBtn.textContent = this.allExpanded ? 'Collapse All' : 'Expand All';
+      expandAllBtn.classList.toggle('active', this.allExpanded);
+
+      const urlItems = expandedView.querySelectorAll('.url-item');
+      urlItems.forEach(item => {
+        const wasExpanded = item.classList.contains('expanded');
+        item.classList.toggle('expanded', this.allExpanded);
+
+        // Lazy-load visit times when expanding
+        if (this.allExpanded && !wasExpanded) {
+          const expandBtn = item.querySelector('.url-item-expand-btn');
+          if (expandBtn) expandBtn.dispatchEvent(new Event('_expand'));
+        }
+
+        // Adjust placeholder height
+        const placeholder = item.closest('.url-item-placeholder') || item;
+        placeholder.style.height = this.allExpanded ? 'auto' : `${this.urlListRowHeight}px`;
+      });
+    });
+
     // Keyboard navigation (arrow keys)
     document.addEventListener('keydown', (e) => {
       if (expandedView.style.display !== 'block') return;
