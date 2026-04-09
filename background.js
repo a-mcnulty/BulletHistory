@@ -269,7 +269,8 @@ chrome.tabs.onCreated.addListener(async (tab) => {
       url: tab.url,
       title: tab.title || tab.url,
       favIconUrl: tab.favIconUrl,
-      openedAt: Date.now()
+      openedAt: Date.now(),
+      groupId: tab.groupId ?? -1
     };
     activeTabs.set(tab.id, tabInfo);
 
@@ -307,7 +308,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       url: tab.url,
       title: tab.title || tab.url,
       favIconUrl: tab.favIconUrl,
-      openedAt: existing?.openedAt || Date.now() // Preserve original open time
+      openedAt: existing?.openedAt || Date.now(), // Preserve original open time
+      groupId: tab.groupId ?? -1
     };
     activeTabs.set(tabId, tabInfo);
 

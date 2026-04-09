@@ -832,6 +832,78 @@ body {
   background: #fafafa;
 }
 
+/* Tab group visual treatment — contiguous border */
+.url-item.tab-grouped {
+  border-left: 3px solid #5f6368;
+  padding-left: 5px;
+  position: relative;
+}
+
+/* Remove gap between consecutive grouped items */
+.url-item.tab-group-first,
+.url-item.tab-group-only {
+  padding-top: 18px;
+}
+
+.url-item.tab-group-first {
+  margin-bottom: 0;
+  border-radius: 4px 4px 0 0;
+}
+
+.url-item.tab-group-middle {
+  margin-top: 0;
+  margin-bottom: 0;
+  border-radius: 0;
+}
+
+.url-item.tab-group-last {
+  margin-top: 0;
+  border-radius: 0 0 4px 4px;
+}
+
+.url-item.tab-group-only {
+  /* Single item in group — keep default border-radius */
+}
+
+/* Placeholders also need zero margin for contiguous look */
+.url-item-placeholder:has(> .tab-group-first),
+.url-item-placeholder:has(> .tab-group-middle) {
+  margin-bottom: 0;
+}
+
+.url-item-placeholder:has(> .tab-group-middle),
+.url-item-placeholder:has(> .tab-group-last) {
+  margin-top: 0;
+}
+
+/* Group label — sits above the first item content */
+.tab-group-label {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  font-size: 9px;
+  color: #fff;
+  padding: 0 6px;
+  border-radius: 3px;
+  line-height: 14px;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  z-index: 1;
+}
+
+/* Tab group drag/drop */
+.url-item.tab-drop-target {
+  outline: 2px dashed #1a73e8;
+  outline-offset: -2px;
+  background: #e8f0fe;
+}
+
+.url-item.dragging {
+  opacity: 0.4;
+}
+
 .url-item:hover {
   background: #f5f5f5;
   z-index: 50;

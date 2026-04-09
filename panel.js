@@ -13,6 +13,8 @@ class BulletHistory {
     this.urlTimeCache = {}; // Cached URL time tracking data: { url: { activeSeconds, openSeconds } }
     this.urlTimeDataByDomain = {}; // Time data organized by domain for cell rendering: { domain: { dateStr: { urls: Set, hourToUrls: { hour: Set } } } }
     this.openTabsByUrl = {}; // Map of URL to openedAt timestamp for currently open tabs
+    this.openTabGroupByUrl = {}; // Map of URL to groupId for currently open tabs
+    this.tabGroupsById = {}; // Map of groupId to { title, color }
 
     // View mode: 'day' (default) or 'hour' - will be loaded from storage in init()
     this.viewMode = 'day';

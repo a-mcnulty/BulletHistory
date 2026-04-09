@@ -332,14 +332,19 @@ BulletHistory.prototype.showActiveTabs = async function() {
     const result = await chrome.storage.local.get(['openTabs']);
     const openTabs = result.openTabs || {};
 
-    // Get current tab info from Chrome to get windowId and lastAccessed
+    // Get current tab info from Chrome to get windowId, lastAccessed, and groupId
     const chromeTabs = await chrome.tabs.query({});
     const tabWindowMap = {};
     const tabAccessMap = {};
+    const tabGroupMap = {};
     chromeTabs.forEach(tab => {
       tabWindowMap[tab.id] = tab.windowId;
-      tabAccessMap[tab.id] = tab.lastAccessed || 0; // Timestamp of last access
+      tabAccessMap[tab.id] = tab.lastAccessed || 0;
+      tabGroupMap[tab.id] = tab.groupId ?? -1;
     });
+
+    // Load tab group metadata (names, colors)
+    await this.loadTabGroups();
 
     // Convert to array and add domain + duration + windowId + lastAccessed
     const activeTabsArray = Object.entries(openTabs).map(([tabId, tabData]) => {
@@ -347,10 +352,12 @@ BulletHistory.prototype.showActiveTabs = async function() {
       const windowId = tabWindowMap[tabIdNum];
       const lastAccessed = tabAccessMap[tabIdNum];
 
+      const groupId = tabGroupMap[tabIdNum] ?? -1;
       try {
         return {
-          tabId: tabIdNum, // Store tab ID so we can close it
+          tabId: tabIdNum,
           windowId: windowId,
+          groupId: groupId,
           url: tabData.url,
           title: tabData.title,
           favIconUrl: tabData.favIconUrl,
@@ -363,8 +370,9 @@ BulletHistory.prototype.showActiveTabs = async function() {
         };
       } catch (e) {
         return {
-          tabId: tabIdNum, // Store tab ID so we can close it
+          tabId: tabIdNum,
           windowId: windowId,
+          groupId: groupId,
           url: tabData.url,
           title: tabData.title,
           favIconUrl: tabData.favIconUrl,
@@ -387,25 +395,52 @@ BulletHistory.prototype.showActiveTabs = async function() {
       tabsByWindow[tab.windowId].push(tab);
     });
 
-    // Sort tabs within each window based on current sort mode
+    // Sort tabs within each window: grouped tabs stay together, then by sort mode
     Object.values(tabsByWindow).forEach(tabs => {
-      if (this.sortMode === 'recent') {
-        // Most Recent: Most recently opened first (newest → oldest)
-        tabs.sort((a, b) => b.openedAt - a.openedAt);
-      } else if (this.sortMode === 'popular') {
-        // Most Popular: Most recently used/accessed first
-        tabs.sort((a, b) => b.lastAccessed - a.lastAccessed);
-      } else if (this.sortMode === 'alphabetical') {
-        // Alphabetical: By title A→Z
-        tabs.sort((a, b) => {
-          const titleA = a.title || a.url;
-          const titleB = b.title || b.url;
-          return titleA.localeCompare(titleB);
-        });
-      } else {
-        // Default: longest open first (by duration)
-        tabs.sort((a, b) => b.duration - a.duration);
+      // Primary sort by sort mode
+      const sortFn = this.sortMode === 'recent' ? (a, b) => b.openedAt - a.openedAt
+        : this.sortMode === 'popular' ? (a, b) => b.lastAccessed - a.lastAccessed
+        : this.sortMode === 'alphabetical' ? (a, b) => (a.title || a.url).localeCompare(b.title || b.url)
+        : (a, b) => b.duration - a.duration;
+
+      // Sort within groups, then order groups by their top-ranked member
+      const grouped = {};
+      const ungrouped = [];
+      tabs.forEach(tab => {
+        if (tab.groupId > -1) {
+          if (!grouped[tab.groupId]) grouped[tab.groupId] = [];
+          grouped[tab.groupId].push(tab);
+        } else {
+          ungrouped.push(tab);
+        }
+      });
+
+      // Sort within each group
+      Object.values(grouped).forEach(g => g.sort(sortFn));
+      ungrouped.sort(sortFn);
+
+      // Sort groups by their first member's sort position
+      const groupOrder = Object.keys(grouped).sort((a, b) => sortFn(grouped[a][0], grouped[b][0]));
+
+      // Merge: interleave groups and ungrouped by their top item
+      const result = [];
+      let gi = 0, ui = 0;
+      while (gi < groupOrder.length || ui < ungrouped.length) {
+        const groupTop = gi < groupOrder.length ? grouped[groupOrder[gi]][0] : null;
+        const ungroupedTop = ui < ungrouped.length ? ungrouped[ui] : null;
+
+        if (groupTop && (!ungroupedTop || sortFn(groupTop, ungroupedTop) <= 0)) {
+          result.push(...grouped[groupOrder[gi]]);
+          gi++;
+        } else {
+          result.push(ungroupedTop);
+          ui++;
+        }
       }
+
+      // Replace tabs array contents
+      tabs.length = 0;
+      tabs.push(...result);
     });
 
     // Flatten back to array, keeping window groups together

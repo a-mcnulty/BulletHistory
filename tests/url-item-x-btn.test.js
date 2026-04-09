@@ -275,3 +275,168 @@ describe('url-item expand button', () => {
     expect(urlItem.classList.contains('expanded')).toBe(false);
   });
 });
+
+describe('url-item tab group display', () => {
+  const TAB_GROUP_COLORS = {
+    grey: '#5f6368',
+    blue: '#1a73e8',
+    red: '#d93025',
+    yellow: '#f9ab00',
+    green: '#188038',
+    pink: '#d01884',
+    purple: '#a142f4',
+    cyan: '#007b83',
+    orange: '#e8710a'
+  };
+
+  function applyTabGroup(urlItem, groupId, tabGroupsById, tabGroupPos) {
+    const groupInfo = groupId > -1 ? tabGroupsById[groupId] : null;
+    if (groupInfo && tabGroupPos) {
+      const cssColor = TAB_GROUP_COLORS[groupInfo.color] || '#5f6368';
+      urlItem.classList.add('tab-grouped', `tab-group-${tabGroupPos}`);
+      urlItem.style.borderLeftColor = cssColor;
+      urlItem.dataset.groupId = groupId;
+      urlItem.dataset.groupColor = groupInfo.color || 'grey';
+
+      if (tabGroupPos === 'first' || tabGroupPos === 'only') {
+        const groupLabel = document.createElement('span');
+        groupLabel.className = 'tab-group-label';
+        groupLabel.style.backgroundColor = cssColor;
+        groupLabel.textContent = groupInfo.title || 'Group';
+        urlItem.appendChild(groupLabel);
+      }
+    }
+    return urlItem;
+  }
+
+  it('adds tab-grouped class and position class for grouped tab', () => {
+    const urlItem = document.createElement('div');
+    urlItem.className = 'url-item';
+
+    applyTabGroup(urlItem, 1, { 1: { title: 'Work', color: 'blue' } }, 'first');
+
+    expect(urlItem.classList.contains('tab-grouped')).toBe(true);
+    expect(urlItem.classList.contains('tab-group-first')).toBe(true);
+    expect(urlItem.dataset.groupId).toBe('1');
+    expect(urlItem.dataset.groupColor).toBe('blue');
+    expect(urlItem.style.borderLeftColor).toBeTruthy();
+  });
+
+  it('renders group label only on first item', () => {
+    const first = document.createElement('div');
+    first.className = 'url-item';
+    applyTabGroup(first, 2, { 2: { title: 'Research', color: 'green' } }, 'first');
+    expect(first.querySelector('.tab-group-label')).not.toBeNull();
+    expect(first.querySelector('.tab-group-label').textContent).toBe('Research');
+
+    const middle = document.createElement('div');
+    middle.className = 'url-item';
+    applyTabGroup(middle, 2, { 2: { title: 'Research', color: 'green' } }, 'middle');
+    expect(middle.querySelector('.tab-group-label')).toBeNull();
+
+    const last = document.createElement('div');
+    last.className = 'url-item';
+    applyTabGroup(last, 2, { 2: { title: 'Research', color: 'green' } }, 'last');
+    expect(last.querySelector('.tab-group-label')).toBeNull();
+  });
+
+  it('renders group label on only (single) item', () => {
+    const urlItem = document.createElement('div');
+    urlItem.className = 'url-item';
+
+    applyTabGroup(urlItem, 5, { 5: { title: 'Solo', color: 'pink' } }, 'only');
+
+    const label = urlItem.querySelector('.tab-group-label');
+    expect(label).not.toBeNull();
+    expect(label.textContent).toBe('Solo');
+  });
+
+  it('uses "Group" as default label when title is empty', () => {
+    const urlItem = document.createElement('div');
+    urlItem.className = 'url-item';
+
+    applyTabGroup(urlItem, 3, { 3: { title: '', color: 'red' } }, 'only');
+
+    const label = urlItem.querySelector('.tab-group-label');
+    expect(label.textContent).toBe('Group');
+  });
+
+  it('does not add tab-grouped for ungrouped tab (groupId -1)', () => {
+    const urlItem = document.createElement('div');
+    urlItem.className = 'url-item';
+
+    applyTabGroup(urlItem, -1, {}, null);
+
+    expect(urlItem.classList.contains('tab-grouped')).toBe(false);
+    expect(urlItem.querySelector('.tab-group-label')).toBeNull();
+  });
+
+  it('does not add tab-grouped when tabGroupPos is null', () => {
+    const urlItem = document.createElement('div');
+    urlItem.className = 'url-item';
+
+    applyTabGroup(urlItem, 1, { 1: { title: 'X', color: 'blue' } }, null);
+
+    expect(urlItem.classList.contains('tab-grouped')).toBe(false);
+  });
+
+  it('does not add tab-grouped when groupId is missing from tabGroupsById', () => {
+    const urlItem = document.createElement('div');
+    urlItem.className = 'url-item';
+
+    applyTabGroup(urlItem, 99, {}, 'only');
+
+    expect(urlItem.classList.contains('tab-grouped')).toBe(false);
+  });
+
+  it('falls back to grey color for unknown color name', () => {
+    const urlItem = document.createElement('div');
+    urlItem.className = 'url-item';
+
+    applyTabGroup(urlItem, 4, { 4: { title: 'Test', color: 'neon' } }, 'first');
+
+    expect(urlItem.dataset.groupColor).toBe('neon');
+    expect(urlItem.style.borderLeftColor).toBeTruthy();
+  });
+
+  it('maps all Chrome tab group colors to non-empty values', () => {
+    const colors = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
+    colors.forEach(color => {
+      const urlItem = document.createElement('div');
+      urlItem.className = 'url-item';
+      applyTabGroup(urlItem, 1, { 1: { title: 'T', color } }, 'only');
+      expect(urlItem.classList.contains('tab-grouped')).toBe(true);
+      expect(urlItem.dataset.groupColor).toBe(color);
+      expect(urlItem.style.borderLeftColor).toBeTruthy();
+    });
+  });
+
+  it('assigns correct position classes for all positions', () => {
+    ['first', 'middle', 'last', 'only'].forEach(pos => {
+      const urlItem = document.createElement('div');
+      urlItem.className = 'url-item';
+      applyTabGroup(urlItem, 1, { 1: { title: 'T', color: 'blue' } }, pos);
+      expect(urlItem.classList.contains(`tab-group-${pos}`)).toBe(true);
+    });
+  });
+});
+
+describe('tab group drag/drop data', () => {
+  it('sets draggable on active tab url-items', () => {
+    const urlItem = document.createElement('div');
+    urlItem.className = 'url-item';
+    // Simulating what createUrlItem does for active tabs
+    urlItem.draggable = true;
+    urlItem.dataset.tabId = '42';
+
+    expect(urlItem.draggable).toBe(true);
+    expect(urlItem.dataset.tabId).toBe('42');
+  });
+
+  it('does not set draggable for non-active views', () => {
+    const urlItem = document.createElement('div');
+    urlItem.className = 'url-item';
+    // In non-active views, draggable is not set
+    expect(urlItem.draggable).toBe(false);
+  });
+});

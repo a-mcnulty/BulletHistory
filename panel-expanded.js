@@ -487,12 +487,18 @@ BulletHistory.prototype.populateUrlItem = function(placeholder) {
     } else {
       // Regular URL item
       const urlData = row.data;
-      const urlItem = this.createUrlItem(urlData, urlData.domain, urlData.date);
+      const urlItem = this.createUrlItem(urlData, urlData.domain, urlData.date, row.tabGroupPos);
       placeholder.className = urlItem.className;
       placeholder.innerHTML = '';  // Clear placeholder
       while (urlItem.firstChild) {
         placeholder.appendChild(urlItem.firstChild);  // Move (not copy) children
       }
+      // Copy inline styles and dataset from created urlItem
+      if (urlItem.style.borderLeftColor) {
+        placeholder.style.borderLeftColor = urlItem.style.borderLeftColor;
+      }
+      Object.assign(placeholder.dataset, urlItem.dataset);
+      if (urlItem.draggable) placeholder.draggable = true;
       placeholder.style.boxSizing = 'border-box';
 
       // If expand-all is active, auto-expand this item
@@ -604,12 +610,27 @@ BulletHistory.prototype.buildVirtualRows = function(filteredUrls) {
         continue;
       }
 
+      // Determine tab group position (for contiguous group visual)
+      let tabGroupPos = null;
+      if (this.expandedViewType === 'active' && urlData.groupId > -1) {
+        const prev = i > 0 ? filteredUrls[i - 1] : null;
+        const next = i < filteredUrls.length - 1 ? filteredUrls[i + 1] : null;
+        const prevSame = prev && prev.groupId === urlData.groupId;
+        const nextSame = next && next.groupId === urlData.groupId;
+
+        if (prevSame && nextSame) tabGroupPos = 'middle';
+        else if (prevSame) tabGroupPos = 'last';
+        else if (nextSame) tabGroupPos = 'first';
+        else tabGroupPos = 'only';
+      }
+
       // Add item row
       this.virtualRows.push({
         type: 'item',
         index: i,
         data: urlData,
-        groupKey
+        groupKey,
+        tabGroupPos
       });
     }
 };
@@ -748,7 +769,7 @@ BulletHistory.prototype.renderVisibleUrlItems = function(scrollContainer, conten
         contentContainer.appendChild(groupHeader);
       } else {
         const urlData = row.data;
-        const urlItem = this.createUrlItem(urlData, urlData.domain, urlData.date);
+        const urlItem = this.createUrlItem(urlData, urlData.domain, urlData.date, row.tabGroupPos);
         urlItem.style.boxSizing = 'border-box';
 
         if (this.allExpanded) {
@@ -1074,9 +1095,47 @@ BulletHistory.prototype.setupUrlListDropTarget = function(urlList) {
     urlList.addEventListener('drop', urlList._dropHandler);
 };
 
-BulletHistory.prototype.createUrlItem = function(urlData, domain, date) {
+// Chrome tab group color name -> CSS color
+BulletHistory.TAB_GROUP_COLORS = {
+  grey: '#5f6368',
+  blue: '#1a73e8',
+  red: '#d93025',
+  yellow: '#f9ab00',
+  green: '#188038',
+  pink: '#d01884',
+  purple: '#a142f4',
+  cyan: '#007b83',
+  orange: '#e8710a'
+};
+
+BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroupPos) {
     const urlItem = document.createElement('div');
     urlItem.className = 'url-item';
+
+    // Tab group visual treatment
+    const groupId = urlData.groupId ?? this.openTabGroupByUrl?.[urlData.url] ?? -1;
+    const groupInfo = groupId > -1 ? this.tabGroupsById?.[groupId] : null;
+    if (groupInfo && tabGroupPos) {
+      const cssColor = BulletHistory.TAB_GROUP_COLORS[groupInfo.color] || '#5f6368';
+      urlItem.classList.add('tab-grouped', `tab-group-${tabGroupPos}`);
+      urlItem.style.borderLeftColor = cssColor;
+      urlItem.dataset.groupId = groupId;
+      urlItem.dataset.groupColor = groupInfo.color || 'grey';
+
+      // Only show label on the first item (or only item) in the group
+      if (tabGroupPos === 'first' || tabGroupPos === 'only') {
+        const groupLabel = document.createElement('span');
+        groupLabel.className = 'tab-group-label';
+        groupLabel.style.backgroundColor = cssColor;
+        groupLabel.textContent = groupInfo.title || 'Group';
+        urlItem.appendChild(groupLabel);
+      }
+    }
+
+    // Store tabId for drag/drop grouping
+    if (urlData.tabId) {
+      urlItem.dataset.tabId = urlData.tabId;
+    }
 
     // Left side: count + timestamp
     const leftDiv = document.createElement('div');
@@ -1559,12 +1618,94 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date) {
       });
     }
 
+    // Tab group drag/drop (active tabs only)
+    if (this.expandedViewType === 'active' && urlData.tabId) {
+      urlItem.draggable = true;
+      this.setupTabGroupDrag(urlItem, urlData);
+    }
+
     urlItem.appendChild(leftDiv);
     urlItem.appendChild(rightDiv);
     urlItem.appendChild(expandBtn);
     urlItem.appendChild(xBtn);
 
     return urlItem;
+};
+
+// Setup drag handlers for tab group creation/joining
+BulletHistory.prototype.setupTabGroupDrag = function(urlItem, urlData) {
+    urlItem.addEventListener('dragstart', (e) => {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', JSON.stringify({
+        tabId: urlData.tabId,
+        groupId: urlData.groupId ?? -1,
+        url: urlData.url
+      }));
+      urlItem.classList.add('dragging');
+    });
+
+    urlItem.addEventListener('dragend', () => {
+      urlItem.classList.remove('dragging');
+      // Clear all drop indicators
+      document.querySelectorAll('.url-item.tab-drop-target').forEach(el => {
+        el.classList.remove('tab-drop-target');
+      });
+    });
+
+    urlItem.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      // Only show drop indicator if not dragging onto self
+      if (!urlItem.classList.contains('dragging')) {
+        urlItem.classList.add('tab-drop-target');
+      }
+    });
+
+    urlItem.addEventListener('dragleave', (e) => {
+      if (!urlItem.contains(e.relatedTarget)) {
+        urlItem.classList.remove('tab-drop-target');
+      }
+    });
+
+    urlItem.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      urlItem.classList.remove('tab-drop-target');
+
+      let dragData;
+      try {
+        dragData = JSON.parse(e.dataTransfer.getData('text/plain'));
+      } catch { return; }
+
+      const sourceTabId = dragData.tabId;
+      const targetTabId = urlData.tabId;
+      if (sourceTabId === targetTabId) return;
+
+      const sourceGroupId = dragData.groupId ?? -1;
+      const targetGroupId = urlData.groupId ?? -1;
+
+      try {
+        if (targetGroupId > -1) {
+          // Target is in a group — add source to that group
+          await chrome.tabs.group({ tabIds: [sourceTabId], groupId: targetGroupId });
+        } else if (sourceGroupId > -1) {
+          // Source is in a group — add target to that group
+          await chrome.tabs.group({ tabIds: [targetTabId], groupId: sourceGroupId });
+        } else {
+          // Neither is in a group — create a new group with both
+          const newGroupId = await chrome.tabs.group({ tabIds: [sourceTabId, targetTabId] });
+          // Auto-title with shared domain if same domain
+          const sourceDomain = dragData.url ? new URL(dragData.url).hostname.replace(/^www\./, '') : '';
+          const targetDomain = urlData.url ? new URL(urlData.url).hostname.replace(/^www\./, '') : '';
+          if (sourceDomain && sourceDomain === targetDomain) {
+            await chrome.tabGroups.update(newGroupId, { title: sourceDomain });
+          }
+        }
+        // Refresh to show updated groups
+        this.showActiveTabs();
+      } catch (err) {
+        console.warn('Failed to group tabs:', err);
+      }
+    });
 };
 
 // Attach URL preview tooltip to a URL item

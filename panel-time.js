@@ -230,19 +230,43 @@ BulletHistory.prototype.refreshUrlTimeCache = async function() {
     await this.loadUrlTimeDataForCells();
 };
 
-// Load open tabs data to get openedAt timestamps for currently open tabs
+// Load open tabs data to get openedAt timestamps and group info for currently open tabs
 BulletHistory.prototype.loadOpenTabsData = async function() {
     try {
       const result = await chrome.storage.local.get(['openTabs']);
       const openTabs = result.openTabs || {};
       this.openTabsByUrl = {};
+      this.openTabGroupByUrl = {}; // URL -> groupId
       for (const [tabId, tabData] of Object.entries(openTabs)) {
         if (tabData.url && tabData.openedAt) {
           this.openTabsByUrl[tabData.url] = tabData.openedAt;
         }
+        if (tabData.url && tabData.groupId !== undefined && tabData.groupId !== -1) {
+          this.openTabGroupByUrl[tabData.url] = tabData.groupId;
+        }
       }
+      // Load tab group metadata (names, colors)
+      await this.loadTabGroups();
     } catch (e) {
       console.warn('Failed to load open tabs data:', e);
+    }
+};
+
+// Load tab group metadata from Chrome
+BulletHistory.prototype.loadTabGroups = async function() {
+    this.tabGroupsById = {}; // groupId -> { title, color }
+    try {
+      if (chrome.tabGroups) {
+        const groups = await chrome.tabGroups.query({});
+        for (const group of groups) {
+          this.tabGroupsById[group.id] = {
+            title: group.title || '',
+            color: group.color // Chrome group color name: grey, blue, red, yellow, green, pink, purple, cyan, orange
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load tab groups:', e);
     }
 };
 
