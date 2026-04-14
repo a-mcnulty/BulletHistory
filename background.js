@@ -264,7 +264,8 @@ async function cacheFavicon(url, favIconUrl) {
 
 // Track when tabs are created
 chrome.tabs.onCreated.addListener(async (tab) => {
-  if (tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
+  if (tab.url && tab.url !== 'about:blank') {
+    const isChromePage = tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://');
     const tabInfo = {
       url: tab.url,
       title: tab.title || tab.url,
@@ -274,16 +275,18 @@ chrome.tabs.onCreated.addListener(async (tab) => {
     };
     activeTabs.set(tab.id, tabInfo);
 
-    // Seed 1 second so open time shows immediately (before first alarm tick)
-    addTimeToUrl(tab.url, 'open', 1);
+    if (!isChromePage) {
+      // Seed 1 second so open time shows immediately (before first alarm tick)
+      addTimeToUrl(tab.url, 'open', 1);
 
-    // Start open time tracking for background tabs
-    if (!tab.active) {
-      openTabsStartTime[tab.id] = Date.now();
+      // Start open time tracking for background tabs
+      if (!tab.active) {
+        openTabsStartTime[tab.id] = Date.now();
+      }
+
+      // Cache favicon
+      await cacheFavicon(tab.url, tab.favIconUrl);
     }
-
-    // Cache favicon
-    await cacheFavicon(tab.url, tab.favIconUrl);
 
     // Update in-memory storage (debounced write to disk)
     openTabsInMemory[tab.id] = tabInfo;
@@ -301,7 +304,8 @@ chrome.tabs.onCreated.addListener(async (tab) => {
 // Track when tabs are updated
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   // Store tab info whenever it updates
-  if (tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
+  if (tab.url && tab.url !== 'about:blank') {
+    const isChromePage = tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://');
     const existing = activeTabs.get(tabId);
     const oldUrl = existing?.url;
     const tabInfo = {
@@ -313,30 +317,32 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     };
     activeTabs.set(tabId, tabInfo);
 
-    // Handle URL change for time tracking (SPA navigation)
-    if (changeInfo.url && oldUrl !== changeInfo.url) {
-      // Seed 1 second so open time shows immediately (before first alarm tick)
-      if (!shouldSkipUrl(changeInfo.url)) {
-        addTimeToUrl(changeInfo.url, 'open', 1);
-      }
-
-      if (tabId === currentActiveTabId) {
-        // Active tab URL changed - finalize time for old URL, start tracking new URL
-        finalizeActiveTabTime();
-        currentActiveUrl = changeInfo.url;
-        lastActiveTimestamp = windowFocused ? Date.now() : null;
-      } else {
-        // Background tab URL changed - finalize open time for old URL, start/restart open tracking
-        if (openTabsStartTime[tabId]) {
-          finalizeOpenTime(tabId);
+    if (!isChromePage) {
+      // Handle URL change for time tracking (SPA navigation)
+      if (changeInfo.url && oldUrl !== changeInfo.url) {
+        // Seed 1 second so open time shows immediately (before first alarm tick)
+        if (!shouldSkipUrl(changeInfo.url)) {
+          addTimeToUrl(changeInfo.url, 'open', 1);
         }
-        openTabsStartTime[tabId] = Date.now();
-      }
-    }
 
-    // Cache favicon (only when favicon actually changes to reduce writes)
-    if (changeInfo.favIconUrl) {
-      await cacheFavicon(tab.url, tab.favIconUrl);
+        if (tabId === currentActiveTabId) {
+          // Active tab URL changed - finalize time for old URL, start tracking new URL
+          finalizeActiveTabTime();
+          currentActiveUrl = changeInfo.url;
+          lastActiveTimestamp = windowFocused ? Date.now() : null;
+        } else {
+          // Background tab URL changed - finalize open time for old URL, start/restart open tracking
+          if (openTabsStartTime[tabId]) {
+            finalizeOpenTime(tabId);
+          }
+          openTabsStartTime[tabId] = Date.now();
+        }
+      }
+
+      // Cache favicon (only when favicon actually changes to reduce writes)
+      if (changeInfo.favIconUrl) {
+        await cacheFavicon(tab.url, tab.favIconUrl);
+      }
     }
 
     // Update in-memory storage (debounced write to disk)
@@ -559,7 +565,7 @@ chrome.storage.local.get(['openTabs', 'lastAlarmTime'], (result) => {
     await refreshTabGroupCache();
 
     tabs.forEach(tab => {
-      if (tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://') && tab.url !== 'about:blank') {
+      if (tab.url && tab.url !== 'about:blank') {
         const tabInfo = {
           url: tab.url,
           title: tab.title || tab.url,

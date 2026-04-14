@@ -348,6 +348,16 @@ BulletHistory.prototype.showActiveTabs = async function() {
       tabWindowMap[tab.id] = tab.windowId;
       tabAccessMap[tab.id] = tab.lastAccessed || 0;
       tabGroupMap[tab.id] = tab.groupId ?? -1;
+
+      // Backfill tabs not yet in storage (e.g. after extension reload, or chrome:// tabs)
+      if (!openTabs[tab.id] && tab.url && tab.url !== 'about:blank') {
+        openTabs[tab.id] = {
+          url: tab.url,
+          title: tab.title || tab.url,
+          favIconUrl: tab.favIconUrl,
+          openedAt: Date.now()
+        };
+      }
     });
 
     // Load tab group metadata (names, colors)
@@ -410,9 +420,16 @@ BulletHistory.prototype.showActiveTabs = async function() {
         : (a, b) => b.duration - a.duration;
 
       tabs.sort(sortFn);
-      const cohesive = this.applyTabGroupCohesion(tabs);
+      const cohesive = this.applyTabGroupCohesion([...tabs]);
       tabs.length = 0;
       tabs.push(...cohesive);
+    });
+
+    // Remove empty windows (stale entries from closed windows)
+    Object.keys(tabsByWindow).forEach(windowId => {
+      if (tabsByWindow[windowId].length === 0) {
+        delete tabsByWindow[windowId];
+      }
     });
 
     // Flatten back to array, keeping window groups together
@@ -424,6 +441,24 @@ BulletHistory.prototype.showActiveTabs = async function() {
 
     this.expandedUrls = sortedActiveTabsArray;
     const windowCount = Object.keys(tabsByWindow).length;
+    console.log('[ActiveTabs] chromeTabs:', chromeTabs.length, 'openTabs keys:', Object.keys(openTabs).length, 'activeTabsArray:', activeTabsArray.length, 'windows:', windowCount);
+    // Show all chrome tabs grouped by window
+    const chromeByWindow = {};
+    chromeTabs.forEach(t => {
+      if (!chromeByWindow[t.windowId]) chromeByWindow[t.windowId] = [];
+      chromeByWindow[t.windowId].push({ id: t.id, url: t.url, type: t.url?.startsWith('chrome') ? 'chrome' : 'http' });
+    });
+    console.log('[ActiveTabs] Chrome windows:', JSON.stringify(chromeByWindow, null, 2));
+    // Show which openTabs entries have no matching chrome tab
+    Object.keys(openTabs).forEach(tabId => {
+      if (!tabWindowMap[parseInt(tabId)]) {
+        console.log('[ActiveTabs] STALE openTab:', tabId, openTabs[tabId].url);
+      }
+    });
+    // Show final tabsByWindow
+    Object.entries(tabsByWindow).forEach(([wid, tabs]) => {
+      console.log(`[ActiveTabs] Rendered Window ${wid}: ${tabs.length} tab(s)`, tabs.map(t => t.url));
+    });
     expandedTitle.textContent = `Active Tabs (${sortedActiveTabsArray.length} tabs in ${windowCount} window${windowCount !== 1 ? 's' : ''})`;
 
     this.renderUrlList();

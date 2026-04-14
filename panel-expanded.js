@@ -124,6 +124,29 @@ BulletHistory.prototype.showFullHistory = async function() {
       allUrls.sort((a, b) => b.lastVisit - a.lastVisit);
     }
 
+    // Merge currently open chrome:// tabs (not in Chrome History API)
+    try {
+      const chromeTabs = await chrome.tabs.query({});
+      chromeTabs.forEach(tab => {
+        if (tab.url && (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) && tab.url !== 'about:blank') {
+          let domain;
+          try { domain = new URL(tab.url).hostname || tab.url; } catch (e) { domain = tab.url; }
+          allUrls.push({
+            url: tab.url,
+            title: tab.title || tab.url,
+            lastVisit: tab.lastAccessed || Date.now(),
+            visitCount: 1,
+            domain: domain,
+            date: DateUtils.formatDateISO(new Date()),
+            tabId: tab.id,
+            favIconUrl: tab.favIconUrl
+          });
+        }
+      });
+    } catch (e) {
+      // Tabs API not available, skip
+    }
+
     // Store URLs and render with virtual scrolling
     this.expandedUrls = allUrls;
 
@@ -1350,7 +1373,7 @@ BulletHistory.prototype.createTabGroupHeader = function(row) {
           for (const tabId of tabIds) {
             await chrome.tabs.ungroup(tabId);
           }
-          this.showActiveTabs();
+          setTimeout(() => this.showActiveTabs(), 150);
         } catch (err) {
           console.warn('Failed to ungroup tabs:', err);
         }
@@ -1543,7 +1566,8 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroup
           e.stopPropagation();
           try {
             await chrome.tabs.ungroup(urlData.tabId);
-            this.showActiveTabs();
+            // Small delay to let Chrome update the tab's group state
+            setTimeout(() => this.showActiveTabs(), 150);
           } catch (err) {
             console.warn('Failed to ungroup tab:', err);
           }
@@ -2179,8 +2203,8 @@ BulletHistory.prototype.setupTabGroupDrag = function(urlItem, urlData) {
             await chrome.tabGroups.update(newGroupId, { title: sourceDomain });
           }
         }
-        // Refresh to show updated groups
-        this.showActiveTabs();
+        // Refresh to show updated groups (delay for Chrome to update state)
+        setTimeout(() => this.showActiveTabs(), 150);
       } catch (err) {
         console.warn('Failed to group tabs:', err);
       }

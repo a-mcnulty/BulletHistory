@@ -156,6 +156,32 @@ class BulletHistory {
       }
     });
 
+    // Listen for tab changes to refresh active tabs view
+    let activeTabsRefreshTimer = null;
+    const refreshActiveTabs = () => {
+      if (this.expandedViewType !== 'active') return;
+      // Debounce rapid tab events
+      if (activeTabsRefreshTimer) clearTimeout(activeTabsRefreshTimer);
+      activeTabsRefreshTimer = setTimeout(() => {
+        activeTabsRefreshTimer = null;
+        this.showActiveTabs();
+      }, 200);
+    };
+    chrome.tabs.onCreated.addListener(refreshActiveTabs);
+    chrome.tabs.onRemoved.addListener(refreshActiveTabs);
+    chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+      if (changeInfo.url || changeInfo.title || changeInfo.status === 'complete') {
+        refreshActiveTabs();
+      }
+    });
+
+    // Listen for background script notifications
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message.type === 'tabsUpdated') {
+        refreshActiveTabs();
+      }
+    });
+
     // Listen for bookmark changes
     chrome.bookmarks.onCreated.addListener(() => {
       if (this.expandedViewType === 'bookmarks') {
