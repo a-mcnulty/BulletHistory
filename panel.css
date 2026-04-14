@@ -1600,26 +1600,57 @@ body {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  margin: 0px 8px;
-  background: #f7f7f7;
+  margin: 0px 4px;
+  background-color: #fff;
   border: 1px solid #e0e0e0;
+  border-left: 2px solid #ccc;
   cursor: pointer;
-  padding: 5px 10px;
-  border-radius: 6px;
-  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  padding: 4px 10px;
+  border-radius: 0;
+  transition: opacity 0.15s ease;
   flex: 1;
   max-width: none;
+  font-weight: 500;
+  color: #666;
 }
 
 .menu-btn:hover {
-  background: #ebebeb;
-  border-color: #ccc;
+  opacity: 0.7;
 }
 
 .menu-btn.active {
-  background: #e3f2fd;
-  border-color: #90caf9;
-  box-shadow: 0 0 0 1px #90caf9 inset;
+  opacity: 1;
+  background-color: #fff;
+  border-top-color: #bbb;
+  border-right-color: #bbb;
+  border-bottom-color: #bbb;
+  font-weight: 600;
+  color: #333;
+}
+
+#recentHistoryBtn.active { border-left-color: #7986cb; background-color: #f5f6fb; }
+#bookmarksBtn.active { border-left-color: #f9ab00; background-color: #fef9ef; }
+#activeTabsBtn.active { border-left-color: #4db6ac; background-color: #f0faf9; }
+#recentlyClosedBtn.active { border-left-color: #ef5350; background-color: #fef5f5; }
+
+.menu-icon {
+  display: none;
+}
+
+#recentHistoryBtn {
+  border-left-color: #7986cb;
+}
+
+#bookmarksBtn {
+  border-left-color: #f9ab00;
+}
+
+#activeTabsBtn {
+  border-left-color: #4db6ac;
+}
+
+#recentlyClosedBtn {
+  border-left-color: #ef5350;
 }
 
 .menu-icon {
