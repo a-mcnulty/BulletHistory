@@ -1470,7 +1470,7 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroup
     if (this.expandedViewType === 'bookmarks') {
       const manageBtn = document.createElement('button');
       manageBtn.className = 'icon-btn manage';
-      manageBtn.textContent = '⚙️ Manage';
+      manageBtn.textContent = 'Manage';
       manageBtn.title = 'Manage bookmark in Chrome';
       manageBtn.addEventListener('click', () => {
         // Open Chrome's bookmark manager to the specific folder
@@ -1483,7 +1483,7 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroup
       // For active tabs view: Show close tab button
       const closeBtn = document.createElement('button');
       closeBtn.className = 'icon-btn delete';
-      closeBtn.textContent = '✕ Close';
+      closeBtn.textContent = 'Close';
       closeBtn.title = 'Close tab';
       closeBtn.addEventListener('click', async (e) => {
         // Find the parent url-item element
@@ -1507,7 +1507,7 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroup
       // For other views: Show delete button
       const deleteBtn = document.createElement('button');
       deleteBtn.className = 'icon-btn delete';
-      deleteBtn.textContent = '🗑️ Delete';
+      deleteBtn.textContent = 'Delete';
       deleteBtn.title = 'Delete from history';
       deleteBtn.addEventListener('click', (e) => {
         // Find the parent url-item element
@@ -1520,7 +1520,7 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroup
 
     const bookmarkBtn = document.createElement('button');
     bookmarkBtn.className = 'icon-btn bookmark';
-    bookmarkBtn.textContent = '⭐ Favorite';
+    bookmarkBtn.textContent = 'Favorite';
     bookmarkBtn.title = 'Toggle bookmark';
     bookmarkBtn.addEventListener('click', () => this.toggleBookmark(urlData.url, urlData.title, bookmarkBtn));
 
@@ -1727,8 +1727,7 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroup
     const urlDisplay = document.createElement('div');
     urlDisplay.className = 'url-display';
 
-    // Add actions at the top of the hover display
-    urlDisplay.appendChild(actionsDiv);
+    // Actions appended to urlItem directly (visible when expanded, aligned with expand btn)
 
     // Add URL (limited to 3 lines via CSS)
     const fullUrl = document.createElement('div');
@@ -1739,11 +1738,10 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroup
     // Helper to format time for display
     const formatTimeDisplay = DateUtils.formatSecondsDisplay;
 
-    // Today's stats section
-    const todaySection = document.createElement('div');
-    todaySection.className = 'url-display-section';
+    // Visit info table
+    const visitSection = document.createElement('div');
+    visitSection.className = 'url-display-section';
 
-    // Visit Day row
     const visitDayRow = document.createElement('div');
     visitDayRow.className = 'url-display-row';
     if (urlData.lastVisit) {
@@ -1753,18 +1751,27 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroup
         month: 'short',
         day: 'numeric'
       });
-      visitDayRow.innerHTML = `<span class="meta-label">Visit Day:</span> ${dayFormat}`;
+      visitDayRow.innerHTML = `<span class="meta-label">Day</span><span class="meta-value">${dayFormat}</span>`;
     }
-    todaySection.appendChild(visitDayRow);
+    visitSection.appendChild(visitDayRow);
 
-    // Visit Time(s) row - load lazily on first hover to avoid API calls for non-visible items
     const visitTimeRow = document.createElement('div');
     visitTimeRow.className = 'url-display-row';
     visitTimeRow.dataset.url = urlData.url;
     visitTimeRow.dataset.loaded = 'false';
-    todaySection.appendChild(visitTimeRow);
+    visitSection.appendChild(visitTimeRow);
 
-    // Lazy-load visit times on hover (not on create) to reduce Chrome API calls
+    const totalVisitsRow = document.createElement('div');
+    totalVisitsRow.className = 'url-display-row';
+    totalVisitsRow.innerHTML = `<span class="meta-label">Visits</span><span class="meta-value">${urlData.visitCount || 1}</span>`;
+    visitSection.appendChild(totalVisitsRow);
+
+    // Shared grid container for both tables
+    const tablesContainer = document.createElement('div');
+    tablesContainer.className = 'url-display-tables';
+    tablesContainer.appendChild(visitSection);
+
+    // Lazy-load visit times
     let visitTimesLoaded = false;
     const loadVisitTimes = () => {
       if (visitTimesLoaded || !urlData.url) return;
@@ -1774,12 +1781,10 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroup
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
         const todayStartMs = todayStart.getTime();
-
         const todayVisits = visits.filter(v => v.visitTime >= todayStartMs);
 
         if (todayVisits.length > 0) {
           todayVisits.sort((a, b) => a.visitTime - b.visitTime);
-
           const formatVisitTime = (timestamp) => {
             const date = new Date(timestamp);
             const hours = date.getHours();
@@ -1788,32 +1793,28 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroup
             const hours12 = hours % 12 || 12;
             return `${hours12}:${minutes}${ampm}`;
           };
-
           const timeStrings = todayVisits.map(v => formatVisitTime(v.visitTime));
-          const label = todayVisits.length === 1 ? 'Visit Time:' : 'Visit Times:';
-          visitTimeRow.innerHTML = `<span class="meta-label">${label}</span> ${timeStrings.join(', ')}`;
+          const label = todayVisits.length === 1 ? 'Time' : 'Times';
+          visitTimeRow.innerHTML = `<span class="meta-label">${label}</span><span class="meta-value">${timeStrings.join(', ')}</span>`;
         } else if (urlData.lastVisit) {
-          // Fallback to last visit if no visits found today
           const lastVisitDate = new Date(urlData.lastVisit);
           const hours = lastVisitDate.getHours();
           const minutes = String(lastVisitDate.getMinutes()).padStart(2, '0');
           const ampm = hours >= 12 ? 'pm' : 'am';
           const hours12 = hours % 12 || 12;
-          visitTimeRow.innerHTML = `<span class="meta-label">Visit Time:</span> ${hours12}:${minutes}${ampm}`;
+          visitTimeRow.innerHTML = `<span class="meta-label">Time</span><span class="meta-value">${hours12}:${minutes}${ampm}</span>`;
         }
       }).catch(() => {
-        // Fallback on error
         if (urlData.lastVisit) {
           const lastVisitDate = new Date(urlData.lastVisit);
           const hours = lastVisitDate.getHours();
           const minutes = String(lastVisitDate.getMinutes()).padStart(2, '0');
           const ampm = hours >= 12 ? 'pm' : 'am';
           const hours12 = hours % 12 || 12;
-          visitTimeRow.innerHTML = `<span class="meta-label">Visit Time:</span> ${hours12}:${minutes}${ampm}`;
+          visitTimeRow.innerHTML = `<span class="meta-label">Time</span><span class="meta-value">${hours12}:${minutes}${ampm}</span>`;
         }
       });
     };
-    // End of loadVisitTimes function
 
     // Show placeholder text initially
     if (urlData.lastVisit) {
@@ -1822,47 +1823,34 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroup
       const minutes = String(lastVisitDate.getMinutes()).padStart(2, '0');
       const ampm = hours >= 12 ? 'pm' : 'am';
       const hours12 = hours % 12 || 12;
-      visitTimeRow.innerHTML = `<span class="meta-label">Visit Time:</span> ${hours12}:${minutes}${ampm}`;
+      visitTimeRow.innerHTML = `<span class="meta-label">Time</span><span class="meta-value">${hours12}:${minutes}${ampm}</span>`;
     }
 
-    // Active Time (today) row
+    // Time tracking table
+    const timeSection = document.createElement('div');
+    timeSection.className = 'url-display-section';
+
     const activeTodayRow = document.createElement('div');
     activeTodayRow.className = 'url-display-row';
-    todaySection.appendChild(activeTodayRow);
+    timeSection.appendChild(activeTodayRow);
 
-    // Open Time (today) row
     const openTodayRow = document.createElement('div');
     openTodayRow.className = 'url-display-row url-display-row-open';
-    todaySection.appendChild(openTodayRow);
+    timeSection.appendChild(openTodayRow);
 
-    urlDisplay.appendChild(todaySection);
-
-    // Divider
-    const divider = document.createElement('div');
-    divider.className = 'url-display-divider';
-    urlDisplay.appendChild(divider);
-
-    // Totals section
-    const totalsSection = document.createElement('div');
-    totalsSection.className = 'url-display-section';
-
-    // Total Visits row
-    const totalVisitsRow = document.createElement('div');
-    totalVisitsRow.className = 'url-display-row';
-    totalVisitsRow.innerHTML = `<span class="meta-label">Total Visits:</span> ${urlData.visitCount || 1}`;
-    totalsSection.appendChild(totalVisitsRow);
-
-    // Total Active Time row
     const totalActiveRow = document.createElement('div');
     totalActiveRow.className = 'url-display-row';
-    totalsSection.appendChild(totalActiveRow);
+    timeSection.appendChild(totalActiveRow);
 
-    // Total Open Time row
     const totalOpenRow = document.createElement('div');
     totalOpenRow.className = 'url-display-row';
-    totalsSection.appendChild(totalOpenRow);
+    timeSection.appendChild(totalOpenRow);
 
-    urlDisplay.appendChild(totalsSection);
+    const sectionDivider = document.createElement('div');
+    sectionDivider.className = 'url-display-section-divider';
+    tablesContainer.appendChild(sectionDivider);
+    tablesContainer.appendChild(timeSection);
+    urlDisplay.appendChild(tablesContainer);
 
     // Helper to populate time rows
     const populateTimeRows = (timeData) => {
@@ -1871,10 +1859,10 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroup
       const totalOpen = timeData?.openSeconds || 0;
       const totalActive = timeData?.activeSeconds || 0;
 
-      activeTodayRow.innerHTML = `<span class="meta-label">Active Time:</span> ${formatTimeDisplay(activeToday)}`;
-      openTodayRow.innerHTML = `<span class="meta-label">Open Time:</span> ${formatTimeDisplay(openToday)}`;
-      totalActiveRow.innerHTML = `<span class="meta-label">Total Active Time:</span> ${formatTimeDisplay(totalActive)}`;
-      totalOpenRow.innerHTML = `<span class="meta-label">Total Open Time:</span> <span class="total-open-time">${formatTimeDisplay(totalOpen)}</span>`;
+      activeTodayRow.innerHTML = `<span class="meta-label">Tab Active</span><span class="meta-value">${formatTimeDisplay(activeToday)}</span>`;
+      openTodayRow.innerHTML = `<span class="meta-label">Tab Open</span><span class="meta-value">${formatTimeDisplay(openToday)}</span>`;
+      totalActiveRow.innerHTML = `<span class="meta-label">Total Active</span><span class="meta-value">${formatTimeDisplay(totalActive)}</span>`;
+      totalOpenRow.innerHTML = `<span class="meta-label">Total Open</span><span class="meta-value total-open-time">${formatTimeDisplay(totalOpen)}</span>`;
     };
 
     // Use only stored accumulated time (background script handles sleep detection)
@@ -1925,20 +1913,34 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroup
     const expandIcon = document.createElement('span');
     expandIcon.className = 'expand-icon';
     expandIcon.textContent = '▾';
-    const toggleBox = document.createElement('span');
-    toggleBox.className = 'expand-toggle-box';
     expandBtn.appendChild(expandIcon);
-    expandBtn.appendChild(toggleBox);
 
     const setExpanded = (item, expand) => {
+      const placeholder = item.closest('.url-item-placeholder') || item;
       if (expand && !item.classList.contains('expanded')) {
+        // Lock the collapsed height explicitly
+        placeholder.style.height = `${this.urlListRowHeight}px`;
+        placeholder.offsetHeight; // force reflow
+        // Now show expanded content and measure
         item.classList.add('expanded');
         loadVisitTimes();
+        const fullHeight = placeholder.scrollHeight;
+        // Transition to full height
+        placeholder.style.height = `${fullHeight}px`;
+        placeholder.addEventListener('transitionend', function handler() {
+          placeholder.removeEventListener('transitionend', handler);
+          if (item.classList.contains('expanded')) {
+            placeholder.style.height = 'auto';
+          }
+        });
       } else if (!expand && item.classList.contains('expanded')) {
+        // Lock current height explicitly
+        placeholder.style.height = `${placeholder.scrollHeight}px`;
+        placeholder.offsetHeight; // force reflow
+        // Now collapse
         item.classList.remove('expanded');
+        placeholder.style.height = `${this.urlListRowHeight}px`;
       }
-      const placeholder = item.closest('.url-item-placeholder') || item;
-      placeholder.style.height = expand ? 'auto' : `${this.urlListRowHeight}px`;
     };
 
     // Click toggles pinned state
@@ -1950,21 +1952,24 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroup
       setExpanded(item, isPinned);
     });
 
-    // Hover on the url-item expands temporarily (unless pinned)
-    urlItem.addEventListener('mouseenter', () => {
+    // Hover on expand button expands temporarily; stays open until cursor leaves url-item
+    expandBtn.addEventListener('mouseenter', (e) => {
+      e.stopPropagation();
       const item = expandBtn.closest('.url-item');
       if (item && !item.classList.contains('expand-pinned')) {
         setExpanded(item, true);
         item.classList.add('expand-hover');
-      }
-    });
-
-    urlItem.addEventListener('mouseleave', () => {
-      const item = expandBtn.closest('.url-item');
-      if (item && item.classList.contains('expand-hover')) {
-        item.classList.remove('expand-hover');
-        if (!item.classList.contains('expand-pinned')) {
-          setExpanded(item, false);
+        // Attach mouseleave on the actual DOM element (placeholder) if not already attached
+        if (!item._hoverLeaveAttached) {
+          item._hoverLeaveAttached = true;
+          item.addEventListener('mouseleave', () => {
+            if (item.classList.contains('expand-hover')) {
+              item.classList.remove('expand-hover');
+              if (!item.classList.contains('expand-pinned')) {
+                setExpanded(item, false);
+              }
+            }
+          });
         }
       }
     });
@@ -2019,10 +2024,10 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroup
       this.setupTabGroupDrag(urlItem, urlData);
     }
 
+    leftDiv.insertBefore(expandBtn, leftDiv.firstChild);
+    leftDiv.appendChild(actionsDiv);
     urlItem.appendChild(leftDiv);
     urlItem.appendChild(rightDiv);
-    urlItem.appendChild(expandBtn);
-
     urlItem.appendChild(xBtn);
 
     return urlItem;
@@ -2986,7 +2991,7 @@ BulletHistory.prototype.toggleBookmark = function(url, title, bookmarkBtn) {
       chrome.bookmarks.remove(bookmarkId, () => {
         bookmarkBtn.classList.remove('saved');
         delete bookmarkBtn.dataset.bookmarkId;
-        bookmarkBtn.textContent = '⭐ Favorite';
+        bookmarkBtn.textContent = 'Favorite';
       });
     } else {
       // Add bookmark
