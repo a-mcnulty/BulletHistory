@@ -779,7 +779,7 @@ body {
 }
 
 .url-list {
-  padding: 4px 0;
+  padding: 4px 0 4px 4px;
   display: flex;
   flex-direction: column;
   flex: 1 1 auto; /* Allow url-list to grow within expanded-view */
@@ -795,8 +795,142 @@ body {
   font-weight: 600;
   color: #666;
   padding: 4px 8px;
+  margin: 0;
   background: #fafafa;
   letter-spacing: 0.02em;
+}
+
+/* Space between date groups — applied via padding-top on the header.
+   The first header in the list doesn't need it. */
+.date-bracket-header:not(:first-child) {
+  margin-top: 6px;
+}
+
+/* === Nested bracket system ===
+   Each parent's color is preserved through all descendants.
+   Uses background linear-gradient to draw precise 2px lines with 5px whitespace gaps.
+   --date-color is randomly assigned per date group. --group-color per tab group.
+
+   |              = 1 line  (date header: border-left)
+   |  |           = 2 lines (date + group/item)
+   |  |  |        = 3 lines (date + group + item)
+
+   Line positions (2px wide, 5px gap):
+     Level 1 (date):  0px
+     Level 2 (group): 7px
+     Level 3 (item):  14px
+*/
+
+/* Date header: 1 line via border-left, color set via --date-color */
+.date-bracket-header {
+  border-left: 2px solid var(--date-color, #888);
+}
+
+/* All date bracket children */
+.date-bracket-first:not(.date-group-header),
+.date-bracket-middle:not(.date-group-header),
+.date-bracket-last:not(.date-group-header),
+.date-bracket-only:not(.date-group-header) {
+  position: relative;
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+/* Non-grouped url-items in a date bracket: |  | = 2 lines */
+.url-item.date-bracket-first:not(.tab-grouped):not(.tab-ungrouped),
+.url-item.date-bracket-middle:not(.tab-grouped):not(.tab-ungrouped),
+.url-item.date-bracket-last:not(.tab-grouped):not(.tab-ungrouped),
+.url-item.date-bracket-only:not(.tab-grouped):not(.tab-ungrouped) {
+  padding-left: 16px;
+  border-left: none;
+  background-image:
+    linear-gradient(var(--date-color, #888), var(--date-color, #888)),
+    linear-gradient(#d8d8d8, #d8d8d8);
+  background-position: 0 0, 7px 0;
+  background-size: 2px 100%, 2px 100%;
+  background-repeat: no-repeat;
+}
+
+/* Tab-group headers in date bracket: |  | = 2 lines */
+.tab-group-header-row.date-bracket-first,
+.tab-group-header-row.date-bracket-middle,
+.tab-group-header-row.date-bracket-last,
+.tab-group-header-row.date-bracket-only {
+  padding-left: 16px;
+  border-left: none;
+  background-image:
+    linear-gradient(var(--date-color, #888), var(--date-color, #888)),
+    linear-gradient(var(--group-color, #5f6368), var(--group-color, #5f6368));
+  background-position: 0 0, 7px 0;
+  background-size: 2px 100%, 2px 100%;
+  background-repeat: no-repeat;
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+/* Grouped items in date bracket: |  |  | = 3 lines */
+.url-item.tab-grouped.date-bracket-first,
+.url-item.tab-grouped.date-bracket-middle,
+.url-item.tab-grouped.date-bracket-last,
+.url-item.tab-grouped.date-bracket-only {
+  padding-left: 22px;
+  border-left: none;
+  background-image:
+    linear-gradient(var(--date-color, #888), var(--date-color, #888)),
+    linear-gradient(var(--group-color, #5f6368), var(--group-color, #5f6368)),
+    linear-gradient(var(--item-color, #9fa3a7), var(--item-color, #9fa3a7));
+  background-position: 0 0, 7px 0, 14px 0;
+  background-size: 2px 100%, 2px 100%, 2px 100%;
+  background-repeat: no-repeat;
+}
+
+.url-item.tab-ungrouped.date-bracket-first,
+.url-item.tab-ungrouped.date-bracket-middle,
+.url-item.tab-ungrouped.date-bracket-last,
+.url-item.tab-ungrouped.date-bracket-only {
+  padding-left: 22px;
+  border-left: none;
+  background-image:
+    linear-gradient(var(--date-color, #888), var(--date-color, #888)),
+    linear-gradient(#e0e0e0, #e0e0e0),
+    linear-gradient(#ebebeb, #ebebeb);
+  background-position: 0 0, 7px 0, 14px 0;
+  background-size: 2px 100%, 2px 100%, 2px 100%;
+  background-repeat: no-repeat;
+}
+
+/* Grouped/ungrouped items NOT in a date bracket: |  | = 2 lines */
+.url-item.tab-grouped:not([class*="date-bracket"]) {
+  padding-left: 16px;
+  border-left: none;
+  background-image:
+    linear-gradient(var(--group-color, #5f6368), var(--group-color, #5f6368)),
+    linear-gradient(var(--item-color, #9fa3a7), var(--item-color, #9fa3a7));
+  background-position: 0 0, 7px 0;
+  background-size: 2px 100%, 2px 100%;
+  background-repeat: no-repeat;
+}
+
+.url-item.tab-ungrouped:not([class*="date-bracket"]) {
+  padding-left: 16px;
+  border-left: none;
+  background-image:
+    linear-gradient(#e0e0e0, #e0e0e0),
+    linear-gradient(#ebebeb, #ebebeb);
+  background-position: 0 0, 7px 0;
+  background-size: 2px 100%, 2px 100%;
+  background-repeat: no-repeat;
+}
+
+/* Tab-group header NOT in a date bracket: | = 1 line */
+.tab-group-header-row:not([class*="date-bracket"]) {
+  padding-left: 10px;
+  border-left: none;
+  background-image:
+    linear-gradient(var(--group-color, #5f6368), var(--group-color, #5f6368));
+  background-position: 0 0;
+  background-size: 2px 100%;
+  background-repeat: no-repeat;
 }
 
 .hour-group-header {
@@ -806,7 +940,7 @@ body {
   padding: 8px 12px;
   background: #f5f5f5;
   margin-top: 12px;
-  border-left: 3px solid #4285f4;
+  border-left: 2px solid #4285f4;
   letter-spacing: 0.02em;
 }
 
@@ -817,37 +951,38 @@ body {
 .url-item {
   display: flex;
   padding: 4px 8px;
-  background: #fff;
+  background-color: #fff;
   margin: 4px 0px;
-  border-radius: 4px;
+  border-radius: 0;
   font-size: 12px;
   align-items: flex-start;
-  transition: background 0.15s ease;
+  transition: background-color 0.15s ease;
   position: relative;
-  overflow: hidden;
-}
-
-.url-item.expanded {
   overflow: visible;
-  background: #fafafa;
 }
 
-/* Tab group visual treatment — contiguous border */
+.url-item.expanded,
+.url-item.expand-hover {
+  background-color: #fafafa;
+}
+
+/* Tab group visual treatment — all lines drawn via box-shadow (set in bracket rules above) */
 .url-item.tab-grouped {
-  border-left: 3px solid #5f6368;
-  padding-left: 5px;
   position: relative;
 }
 
-/* Remove gap between consecutive grouped items */
-.url-item.tab-group-first,
-.url-item.tab-group-only {
-  padding-top: 18px;
+.url-item.tab-grouped:hover {
+  background-color: #f5f5f5;
+}
+
+.url-item.tab-ungrouped {
+  position: relative;
 }
 
 .url-item.tab-group-first {
+  margin-top: 0;
   margin-bottom: 0;
-  border-radius: 4px 4px 0 0;
+  border-radius: 0;
 }
 
 .url-item.tab-group-middle {
@@ -858,46 +993,115 @@ body {
 
 .url-item.tab-group-last {
   margin-top: 0;
-  border-radius: 0 0 4px 4px;
+  border-radius: 0;
 }
 
 .url-item.tab-group-only {
-  /* Single item in group — keep default border-radius */
+  margin-top: 0;
+  border-radius: 0;
 }
 
-/* Placeholders also need zero margin for contiguous look */
+/* Placeholders inherit zero margin when their children are in brackets */
 .url-item-placeholder:has(> .tab-group-first),
-.url-item-placeholder:has(> .tab-group-middle) {
+.url-item-placeholder:has(> .tab-group-middle),
+.url-item-placeholder:has(> .tab-group-only),
+.url-item-placeholder:has(> .tab-group-last) {
+  margin: 0;
+}
+
+/* === Tab group header row — standalone element in the url-list === */
+.tab-group-header-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  margin: 4px 0 0 0;
+  border-radius: 0;
+  background-color: #f8f8f8;
+  font-size: 11px;
+  color: #444;
+  position: relative;
+  box-sizing: border-box;
+}
+
+/* Inside a date bracket, tab-group headers hug their parent and siblings */
+.tab-group-header-row.date-bracket-first,
+.tab-group-header-row.date-bracket-middle,
+.tab-group-header-row.date-bracket-last,
+.tab-group-header-row.date-bracket-only {
+  margin-top: 0;
   margin-bottom: 0;
 }
 
-.url-item-placeholder:has(> .tab-group-middle),
-.url-item-placeholder:has(> .tab-group-last) {
-  margin-top: 0;
+.tab-group-header-row:hover {
+  background-color: #f0f0f0;
 }
 
-/* Group label — sits above the first item content */
-.tab-group-label {
-  position: absolute;
-  top: 2px;
-  left: 0;
-  font-size: 9px;
-  color: #fff;
-  padding: 0 6px;
-  border-radius: 3px;
-  line-height: 14px;
-  max-width: 90px;
+.tab-group-header-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tab-group-header-title {
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  z-index: 1;
+  max-width: 120px;
+}
+
+.tab-group-header-count {
+  color: #888;
+  font-size: 10px;
+}
+
+.tab-group-header-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.tab-group-header-row:hover .tab-group-header-actions {
+  opacity: 1;
+}
+
+.tab-group-header-btn {
+  background: none;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 9px;
+  color: #666;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tab-group-header-btn:hover {
+  border-color: #999;
+  color: #333;
+  background: #fff;
+}
+
+.tab-group-header-btn.restore {
+  border-color: #4caf50;
+  color: #4caf50;
+}
+
+.tab-group-header-btn.restore:hover {
+  border-color: #388e3c;
+  color: #388e3c;
+  background: #f1f8f4;
 }
 
 /* Tab group drag/drop */
 .url-item.tab-drop-target {
   outline: 2px dashed #1a73e8;
   outline-offset: -2px;
-  background: #e8f0fe;
+  background-color: #e8f0fe;
 }
 
 .url-item.dragging {
@@ -905,7 +1109,7 @@ body {
 }
 
 .url-item:hover {
-  background: #f5f5f5;
+  background-color: #f5f5f5;
   z-index: 50;
 }
 
@@ -920,7 +1124,8 @@ body {
   line-height: 1;
   flex-shrink: 0;
   transition: color 0.15s ease;
-  align-self: center;
+  align-self: flex-start;
+  margin-top: 3px;
 }
 
 .url-item-x-btn:hover {
@@ -930,10 +1135,11 @@ body {
 .url-item-left {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   color: #999;
   flex-shrink: 0;
-  padding-top: 2px;
+  align-self: flex-start;
+  margin-top: 3px;
 }
 
 .url-item-count {
@@ -946,7 +1152,7 @@ body {
 .url-item-time {
   font-size: 10px;
   color: #7cb342;
-  margin-left: 4px;
+  margin-left: 2px;
   min-width: 24px;
   text-align: right;
 }
@@ -1028,6 +1234,79 @@ body {
   border-color: #f57c00;
   color: #f57c00;
   background: #fff3e0;
+}
+
+.icon-btn.ungroup {
+  border-color: #ef5350;
+  color: #ef5350;
+}
+
+.icon-btn.ungroup:hover {
+  border-color: #d32f2f;
+  color: #d32f2f;
+  background: #ffebee;
+}
+
+.icon-btn.add-to-group {
+  border-color: #7e57c2;
+  color: #7e57c2;
+}
+
+.icon-btn.add-to-group:hover {
+  border-color: #5e35b1;
+  color: #5e35b1;
+  background: #ede7f6;
+}
+
+.icon-btn.new-group {
+  border-color: #26a69a;
+  color: #26a69a;
+}
+
+.icon-btn.new-group:hover {
+  border-color: #00897b;
+  color: #00897b;
+  background: #e0f2f1;
+}
+
+/* Tab group picker dropdown */
+.tab-group-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  width: 100%;
+}
+
+.tab-group-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 1px solid #e0e0e0;
+  border-radius: 3px;
+  padding: 3px 8px;
+  font-size: 10px;
+  color: #555;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tab-group-picker-option:hover {
+  background: #f5f5f5;
+  border-color: #999;
+}
+
+.picker-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .url-item-right {
@@ -1144,21 +1423,72 @@ body {
   background: none;
   border: none;
   cursor: pointer;
-  color: #bbb;
-  font-size: 10px;
   padding: 0 4px;
   flex-shrink: 0;
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 3px;
+}
+
+.expand-icon {
+  font-size: 11px;
+  color: #bbb;
+  line-height: 1;
   transition: color 0.15s ease, transform 0.15s ease;
-  align-self: center;
 }
 
-.url-item-expand-btn:hover {
+.url-item-expand-btn:hover .expand-icon {
   color: #555;
 }
 
-.url-item.expanded .url-item-expand-btn {
-  transform: rotate(90deg);
-  color: #555;
+.url-item.expand-pinned .expand-icon {
+  color: #4285f4;
+  transform: rotate(180deg);
+}
+
+.expand-toggle-box {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid #ccc;
+  border-radius: 2px;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.expand-toggle-box::after {
+  content: '';
+  position: absolute;
+  top: 0px;
+  left: 2.5px;
+  width: 3px;
+  height: 5.5px;
+  border: solid transparent;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+  transition: border-color 0.15s ease;
+}
+
+.url-item-expand-btn:hover .expand-toggle-box {
+  border-color: #999;
+}
+
+/* Pinned (checked) state */
+.url-item.expand-pinned .expand-toggle-box {
+  border-color: #4285f4;
+  background-color: #4285f4;
+}
+
+.url-item.expand-pinned .expand-toggle-box::after {
+  border-color: #fff;
+}
+
+/* Show expanded content on hover preview */
+.url-item.expand-hover .url-display {
+  display: block;
 }
 
 /* expand-all toggle in expanded header */
@@ -1196,10 +1526,10 @@ body {
 }
 
 .url-timestamp {
-  font-size: 12px;
-  color: #999;
+  font-size: 9px;
+  color: #aaa;
   white-space: nowrap;
-  min-width: 48px;
+  min-width: 36px;
 }
 
 /* Selected cell highlight */
@@ -1920,6 +2250,12 @@ body {
 
 .url-item:hover {
   transform: translateX(2px);
+}
+
+/* Grouped/ungrouped items: disable translateX so the left border stays aligned */
+.url-item.tab-grouped:hover,
+.url-item.tab-ungrouped:hover {
+  transform: none;
 }
 
 /* Drag and drop styles for bookmarks */

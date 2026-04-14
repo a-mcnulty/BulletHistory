@@ -291,19 +291,16 @@ describe('url-item tab group display', () => {
 
   function applyTabGroup(urlItem, groupId, tabGroupsById, tabGroupPos) {
     const groupInfo = groupId > -1 ? tabGroupsById[groupId] : null;
-    if (groupInfo && tabGroupPos) {
-      const cssColor = TAB_GROUP_COLORS[groupInfo.color] || '#5f6368';
-      urlItem.classList.add('tab-grouped', `tab-group-${tabGroupPos}`);
-      urlItem.style.borderLeftColor = cssColor;
-      urlItem.dataset.groupId = groupId;
-      urlItem.dataset.groupColor = groupInfo.color || 'grey';
-
-      if (tabGroupPos === 'first' || tabGroupPos === 'only') {
-        const groupLabel = document.createElement('span');
-        groupLabel.className = 'tab-group-label';
-        groupLabel.style.backgroundColor = cssColor;
-        groupLabel.textContent = groupInfo.title || 'Group';
-        urlItem.appendChild(groupLabel);
+    if (tabGroupPos) {
+      urlItem.classList.add(`tab-group-${tabGroupPos}`);
+      if (groupInfo) {
+        const cssColor = TAB_GROUP_COLORS[groupInfo.color] || '#5f6368';
+        urlItem.classList.add('tab-grouped');
+        urlItem.style.borderLeftColor = cssColor;
+        urlItem.dataset.groupId = groupId;
+        urlItem.dataset.groupColor = groupInfo.color || 'grey';
+      } else {
+        urlItem.classList.add('tab-ungrouped');
       }
     }
     return urlItem;
@@ -322,43 +319,16 @@ describe('url-item tab group display', () => {
     expect(urlItem.style.borderLeftColor).toBeTruthy();
   });
 
-  it('renders group label only on first item', () => {
+  it('does not render inline label (label is now a separate header row)', () => {
     const first = document.createElement('div');
     first.className = 'url-item';
     applyTabGroup(first, 2, { 2: { title: 'Research', color: 'green' } }, 'first');
-    expect(first.querySelector('.tab-group-label')).not.toBeNull();
-    expect(first.querySelector('.tab-group-label').textContent).toBe('Research');
+    expect(first.querySelector('.tab-group-label')).toBeNull();
 
-    const middle = document.createElement('div');
-    middle.className = 'url-item';
-    applyTabGroup(middle, 2, { 2: { title: 'Research', color: 'green' } }, 'middle');
-    expect(middle.querySelector('.tab-group-label')).toBeNull();
-
-    const last = document.createElement('div');
-    last.className = 'url-item';
-    applyTabGroup(last, 2, { 2: { title: 'Research', color: 'green' } }, 'last');
-    expect(last.querySelector('.tab-group-label')).toBeNull();
-  });
-
-  it('renders group label on only (single) item', () => {
-    const urlItem = document.createElement('div');
-    urlItem.className = 'url-item';
-
-    applyTabGroup(urlItem, 5, { 5: { title: 'Solo', color: 'pink' } }, 'only');
-
-    const label = urlItem.querySelector('.tab-group-label');
-    expect(label).not.toBeNull();
-    expect(label.textContent).toBe('Solo');
-  });
-
-  it('uses "Group" as default label when title is empty', () => {
-    const urlItem = document.createElement('div');
-    urlItem.className = 'url-item';
-
-    applyTabGroup(urlItem, 3, { 3: { title: '', color: 'red' } }, 'only');
-
-    const label = urlItem.querySelector('.tab-group-label');
-    expect(label.textContent).toBe('Group');
+    const only = document.createElement('div');
+    only.className = 'url-item';
+    applyTabGroup(only, 5, { 5: { title: 'Solo', color: 'pink' } }, 'only');
+    expect(only.querySelector('.tab-group-label')).toBeNull();
   });
 
   it('does not add tab-grouped for ungrouped tab (groupId -1)', () => {
@@ -368,7 +338,6 @@ describe('url-item tab group display', () => {
     applyTabGroup(urlItem, -1, {}, null);
 
     expect(urlItem.classList.contains('tab-grouped')).toBe(false);
-    expect(urlItem.querySelector('.tab-group-label')).toBeNull();
   });
 
   it('does not add tab-grouped when tabGroupPos is null', () => {

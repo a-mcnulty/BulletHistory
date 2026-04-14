@@ -373,9 +373,11 @@ BulletHistory.prototype.renderUrlList = function() {
     this.buildVirtualRows(filteredUrls);
 
     // Calculate total height
-    const totalHeight = this.virtualRows.reduce((sum, row) => {
-      return sum + (row.type === 'header' ? this.urlListHeaderHeight : this.urlListRowHeight);
-    }, 0);
+    const getRowHeight = (row) => {
+      if (row.type === 'header' || row.type === 'tab-group-header') return this.urlListHeaderHeight;
+      return this.urlListRowHeight;
+    };
+    const totalHeight = this.virtualRows.reduce((sum, row) => sum + getRowHeight(row), 0);
 
     // Clear list and set view-specific class
     urlList.innerHTML = '';
@@ -412,7 +414,7 @@ BulletHistory.prototype.renderUrlList = function() {
       const placeholder = document.createElement('div');
       placeholder.dataset.rowIndex = i;
 
-      if (row.type === 'header') {
+      if (row.type === 'header' || row.type === 'tab-group-header') {
         placeholder.className = 'url-item-placeholder header-placeholder';
         placeholder.style.height = `${this.urlListHeaderHeight}px`;
       } else {
@@ -438,10 +440,27 @@ BulletHistory.prototype.populateUrlItem = function(placeholder) {
 
     placeholder.dataset.populated = 'true';
 
-    if (row.type === 'header') {
-      placeholder.className = 'date-group-header collapsible-header';
+    if (row.type === 'tab-group-header') {
+      const headerEl = this.createTabGroupHeader(row);
+      placeholder.className = headerEl.className;
+      if (row.dateBracketPos) placeholder.classList.add(`date-bracket-${row.dateBracketPos}`);
+      placeholder.innerHTML = '';
+      while (headerEl.firstChild) {
+        placeholder.appendChild(headerEl.firstChild);
+      }
+      const groupColor = headerEl.style.getPropertyValue('--group-color');
+      if (groupColor) placeholder.style.setProperty('--group-color', groupColor);
+      if (row.dateColor) placeholder.style.setProperty('--date-color', row.dateColor);
       placeholder.style.height = `${this.urlListHeaderHeight}px`;
       placeholder.style.boxSizing = 'border-box';
+      return;
+    }
+
+    if (row.type === 'header') {
+      placeholder.className = 'date-group-header collapsible-header date-bracket-header';
+      placeholder.style.height = `${this.urlListHeaderHeight}px`;
+      placeholder.style.boxSizing = 'border-box';
+      if (row.dateColor) placeholder.style.setProperty('--date-color', row.dateColor);
 
       if (row.isCollapsed) {
         placeholder.classList.add('collapsed');
@@ -489,14 +508,17 @@ BulletHistory.prototype.populateUrlItem = function(placeholder) {
       const urlData = row.data;
       const urlItem = this.createUrlItem(urlData, urlData.domain, urlData.date, row.tabGroupPos);
       placeholder.className = urlItem.className;
+      if (row.dateBracketPos) placeholder.classList.add(`date-bracket-${row.dateBracketPos}`);
       placeholder.innerHTML = '';  // Clear placeholder
       while (urlItem.firstChild) {
         placeholder.appendChild(urlItem.firstChild);  // Move (not copy) children
       }
-      // Copy inline styles and dataset from created urlItem
-      if (urlItem.style.borderLeftColor) {
-        placeholder.style.borderLeftColor = urlItem.style.borderLeftColor;
-      }
+      // Copy CSS custom properties and dataset from created urlItem
+      const gc = urlItem.style.getPropertyValue('--group-color');
+      if (gc) placeholder.style.setProperty('--group-color', gc);
+      const ic = urlItem.style.getPropertyValue('--item-color');
+      if (ic) placeholder.style.setProperty('--item-color', ic);
+      if (row.dateColor) placeholder.style.setProperty('--date-color', row.dateColor);
       Object.assign(placeholder.dataset, urlItem.dataset);
       if (urlItem.draggable) placeholder.draggable = true;
       placeholder.style.boxSizing = 'border-box';
@@ -522,13 +544,38 @@ BulletHistory.prototype.populateUrlItem = function(placeholder) {
         this.setupBookmarkDrag(placeholder, urlData);
         this.setupUrlItemDropTarget(placeholder);
       }
+
+      // Re-attach tab group drag listeners — createUrlItem attached them to the
+      // temporary urlItem, but we moved children to the placeholder so listeners
+      // were lost. Attach directly to the placeholder element.
+      if (this.expandedViewType === 'active' && urlData.tabId) {
+        placeholder.draggable = true;
+        this.setupTabGroupDrag(placeholder, urlData);
+      }
     }
 };
+
+// Color palette for date/window bracket lines — distinct, muted tones
+BulletHistory.DATE_BRACKET_COLORS = [
+  '#7986cb', // indigo
+  '#4db6ac', // teal
+  '#ff8a65', // deep orange
+  '#9575cd', // deep purple
+  '#4fc3f7', // light blue
+  '#e57373', // red
+  '#81c784', // green
+  '#ffb74d', // orange
+  '#f06292', // pink
+  '#a1887f', // brown
+  '#ba68c8', // purple
+  '#64b5f6', // blue
+];
 
 // Build flat list of virtual rows from filtered URLs
 BulletHistory.prototype.buildVirtualRows = function(filteredUrls) {
     this.virtualRows = [];
     let currentGroup = null;
+    let dateColorIndex = 0;
 
     // Helper function to get group key for a URL item
     const getGroupKey = (urlData) => {
@@ -550,6 +597,11 @@ BulletHistory.prototype.buildVirtualRows = function(filteredUrls) {
       }
       return null;
     };
+
+    // Reorder so that URLs in the same Chrome tab group are contiguous within
+    // their header bucket. Tab-group cohesion takes precedence over the active
+    // sort mode, but never crosses a header boundary (window, date, folder).
+    filteredUrls = this.applyTabGroupCohesion(filteredUrls, getGroupKey);
 
     // Count items per group for all views with headers
     const groupCounts = {};
@@ -595,13 +647,16 @@ BulletHistory.prototype.buildVirtualRows = function(filteredUrls) {
       if (groupKey && groupKey !== currentGroup) {
         currentGroup = groupKey;
         const isCollapsed = this.collapsedGroups.has(groupKey);
+        const dateColor = BulletHistory.DATE_BRACKET_COLORS[dateColorIndex % BulletHistory.DATE_BRACKET_COLORS.length];
+        dateColorIndex++;
         this.virtualRows.push({
           type: 'header',
           groupKey,
           groupLabel,
           folderId: urlData.folderId,
           isCollapsed,
-          itemCount: groupCounts[groupKey] || 0
+          itemCount: groupCounts[groupKey] || 0,
+          dateColor
         });
       }
 
@@ -610,18 +665,104 @@ BulletHistory.prototype.buildVirtualRows = function(filteredUrls) {
         continue;
       }
 
-      // Determine tab group position (for contiguous group visual)
+      // Determine tab group position (for contiguous group visual). Resolve
+      // groupId from the item directly, falling back to openTabGroupByUrl for
+      // historical/recent rows whose URL is currently open in a grouped tab.
       let tabGroupPos = null;
-      if (this.expandedViewType === 'active' && urlData.groupId > -1) {
-        const prev = i > 0 ? filteredUrls[i - 1] : null;
-        const next = i < filteredUrls.length - 1 ? filteredUrls[i + 1] : null;
-        const prevSame = prev && prev.groupId === urlData.groupId;
-        const nextSame = next && next.groupId === urlData.groupId;
+      const resolveGroupId = (u) => {
+        if (!u) return -1;
+        if (u.groupId != null && u.groupId > -1) return u.groupId;
+        const fromOpen = this.openTabGroupByUrl?.[u.url];
+        return (fromOpen != null && fromOpen > -1) ? fromOpen : -1;
+      };
+      const sameBucket = (a, b) => getGroupKey(a) === getGroupKey(b);
+      const prev = i > 0 ? filteredUrls[i - 1] : null;
+      const next = i < filteredUrls.length - 1 ? filteredUrls[i + 1] : null;
+
+      const myGroupId = resolveGroupId(urlData);
+      if (myGroupId > -1) {
+        const prevSame = prev && sameBucket(prev, urlData) && resolveGroupId(prev) === myGroupId;
+        const nextSame = next && sameBucket(next, urlData) && resolveGroupId(next) === myGroupId;
 
         if (prevSame && nextSame) tabGroupPos = 'middle';
         else if (prevSame) tabGroupPos = 'last';
         else if (nextSame) tabGroupPos = 'first';
         else tabGroupPos = 'only';
+
+        // Insert a tab-group-header row before the first (or only) item
+        if (tabGroupPos === 'first' || tabGroupPos === 'only') {
+          const groupInfo = this.tabGroupsById?.[myGroupId];
+          // Count members of this tab group in the current bucket
+          let memberCount = 0;
+          const members = [];
+          for (let j = i; j < filteredUrls.length; j++) {
+            const peer = filteredUrls[j];
+            if (!sameBucket(peer, urlData)) break;
+            if (resolveGroupId(peer) === myGroupId) {
+              memberCount++;
+              members.push(peer);
+            } else {
+              break; // cohesion guarantees contiguity
+            }
+          }
+          this.virtualRows.push({
+            type: 'tab-group-header',
+            tabGroupId: myGroupId,
+            groupInfo: groupInfo || { title: '', color: 'grey' },
+            memberCount,
+            members
+          });
+        }
+      } else {
+        // Ungrouped item — check if this bucket has any grouped items.
+        // If so, collect consecutive ungrouped items under an "Ungrouped" header.
+        const prevInBucket = prev && sameBucket(prev, urlData);
+        const prevUngrouped = prevInBucket && resolveGroupId(prev) === -1;
+        const nextInBucket = next && sameBucket(next, urlData);
+        const nextUngrouped = nextInBucket && resolveGroupId(next) === -1;
+
+        // Check if this bucket contains any grouped items (scan from bucket start)
+        let bucketHasGroups = false;
+        for (let j = i; j >= 0; j--) {
+          if (!sameBucket(filteredUrls[j], urlData)) break;
+          if (resolveGroupId(filteredUrls[j]) > -1) { bucketHasGroups = true; break; }
+        }
+        if (!bucketHasGroups) {
+          for (let j = i + 1; j < filteredUrls.length; j++) {
+            if (!sameBucket(filteredUrls[j], urlData)) break;
+            if (resolveGroupId(filteredUrls[j]) > -1) { bucketHasGroups = true; break; }
+          }
+        }
+
+        if (bucketHasGroups) {
+          if (!prevUngrouped) tabGroupPos = nextUngrouped ? 'first' : 'only';
+          else if (!nextUngrouped) tabGroupPos = 'last';
+          else tabGroupPos = 'middle';
+
+          // Insert "Ungrouped" header before the first ungrouped item in this run
+          if (tabGroupPos === 'first' || tabGroupPos === 'only') {
+            let memberCount = 0;
+            const members = [];
+            for (let j = i; j < filteredUrls.length; j++) {
+              const peer = filteredUrls[j];
+              if (!sameBucket(peer, urlData)) break;
+              if (resolveGroupId(peer) === -1) {
+                memberCount++;
+                members.push(peer);
+              } else {
+                break;
+              }
+            }
+            this.virtualRows.push({
+              type: 'tab-group-header',
+              tabGroupId: -1,
+              groupInfo: { title: 'Ungrouped', color: 'grey' },
+              memberCount,
+              members,
+              isUngrouped: true
+            });
+          }
+        }
       }
 
       // Add item row
@@ -633,12 +774,41 @@ BulletHistory.prototype.buildVirtualRows = function(filteredUrls) {
         tabGroupPos
       });
     }
+
+    // Post-process: compute dateBracketPos for every non-header row that
+    // follows a date/window/folder header so the day bracket border spans
+    // from the header down through all its children.
+    let currentHeaderIdx = -1;
+    let currentDateColor = null;
+    for (let r = 0; r < this.virtualRows.length; r++) {
+      const row = this.virtualRows[r];
+      if (row.type === 'header') {
+        currentHeaderIdx = r;
+        currentDateColor = row.dateColor || null;
+        row.dateBracketPos = 'header';
+      } else if (currentHeaderIdx > -1) {
+        // Propagate date color to all children
+        row.dateColor = currentDateColor;
+        // Check if next row is in a different bucket or is the end
+        const next = this.virtualRows[r + 1];
+        const isLast = !next || next.type === 'header';
+        // Check if this is the first child after the header
+        const prev = this.virtualRows[r - 1];
+        const isFirst = prev && prev.type === 'header';
+
+        if (isFirst && isLast) row.dateBracketPos = 'only';
+        else if (isFirst) row.dateBracketPos = 'first';
+        else if (isLast) row.dateBracketPos = 'last';
+        else row.dateBracketPos = 'middle';
+      }
+    }
 };
 
 // Update virtual scroll container height after collapse/expand
 BulletHistory.prototype.updateVirtualScrollHeight = function(animate) {
     const totalHeight = this.virtualRows.reduce((sum, row) => {
-      return sum + (row.type === 'header' ? this.urlListHeaderHeight : this.urlListRowHeight);
+      const isHeader = row.type === 'header' || row.type === 'tab-group-header';
+      return sum + (isHeader ? this.urlListHeaderHeight : this.urlListRowHeight);
     }, 0);
 
     const expandedView = document.getElementById('expandedView');
@@ -668,7 +838,8 @@ BulletHistory.prototype.renderVisibleUrlItems = function(scrollContainer, conten
 
     for (let i = 0; i < this.virtualRows.length; i++) {
       const row = this.virtualRows[i];
-      const rowHeight = row.type === 'header' ? this.urlListHeaderHeight : this.urlListRowHeight;
+      const isHeader = row.type === 'header' || row.type === 'tab-group-header';
+      const rowHeight = isHeader ? this.urlListHeaderHeight : this.urlListRowHeight;
 
       // Check if row is in visible range (with buffer)
       const rowTop = currentY;
@@ -698,11 +869,22 @@ BulletHistory.prototype.renderVisibleUrlItems = function(scrollContainer, conten
     for (let i = startIndex; i <= endIndex && i < this.virtualRows.length; i++) {
       const row = this.virtualRows[i];
 
-      if (row.type === 'header') {
+      // Apply date bracket class
+      const bracketClass = row.dateBracketPos ? `date-bracket-${row.dateBracketPos === 'header' ? 'header' : row.dateBracketPos}` : '';
+
+      if (row.type === 'tab-group-header') {
+        const headerEl = this.createTabGroupHeader(row);
+        if (bracketClass) headerEl.classList.add(bracketClass);
+        if (row.dateColor) headerEl.style.setProperty('--date-color', row.dateColor);
+        headerEl.style.height = `${this.urlListHeaderHeight}px`;
+        headerEl.style.boxSizing = 'border-box';
+        contentContainer.appendChild(headerEl);
+      } else if (row.type === 'header') {
         const groupHeader = document.createElement('div');
-        groupHeader.className = 'date-group-header collapsible-header';
+        groupHeader.className = 'date-group-header collapsible-header date-bracket-header';
         groupHeader.style.height = `${this.urlListHeaderHeight}px`;
         groupHeader.style.boxSizing = 'border-box';
+        if (row.dateColor) groupHeader.style.setProperty('--date-color', row.dateColor);
 
         // Add collapsed class if group is collapsed
         if (row.isCollapsed) {
@@ -770,6 +952,8 @@ BulletHistory.prototype.renderVisibleUrlItems = function(scrollContainer, conten
       } else {
         const urlData = row.data;
         const urlItem = this.createUrlItem(urlData, urlData.domain, urlData.date, row.tabGroupPos);
+        if (bracketClass) urlItem.classList.add(bracketClass);
+        if (row.dateColor) urlItem.style.setProperty('--date-color', row.dateColor);
         urlItem.style.boxSizing = 'border-box';
 
         if (this.allExpanded) {
@@ -1108,27 +1292,108 @@ BulletHistory.TAB_GROUP_COLORS = {
   orange: '#e8710a'
 };
 
+// Lighten a hex color by blending toward white.
+// amount: 0 = original, 1 = white
+BulletHistory.lightenColor = function(hex, amount) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const lr = Math.round(r + (255 - r) * amount);
+  const lg = Math.round(g + (255 - g) * amount);
+  const lb = Math.round(b + (255 - b) * amount);
+  return `#${lr.toString(16).padStart(2, '0')}${lg.toString(16).padStart(2, '0')}${lb.toString(16).padStart(2, '0')}`;
+};
+
+// Create a standalone tab-group header element for the url-list.
+// row: { tabGroupId, groupInfo: {title, color}, memberCount, members }
+BulletHistory.prototype.createTabGroupHeader = function(row) {
+    const isUngrouped = row.isUngrouped;
+    const cssColor = isUngrouped ? '#e0e0e0' : (BulletHistory.TAB_GROUP_COLORS[row.groupInfo.color] || '#5f6368');
+
+    const el = document.createElement('div');
+    el.className = 'tab-group-header-row';
+    if (isUngrouped) el.classList.add('tab-group-header-ungrouped');
+    el.style.setProperty('--group-color', cssColor);
+
+    // Color dot
+    const dot = document.createElement('span');
+    dot.className = 'tab-group-header-dot';
+    dot.style.backgroundColor = cssColor;
+    el.appendChild(dot);
+
+    // Title
+    const title = document.createElement('span');
+    title.className = 'tab-group-header-title';
+    title.textContent = row.groupInfo.title || 'Group';
+    el.appendChild(title);
+
+    // Count
+    const count = document.createElement('span');
+    count.className = 'tab-group-header-count';
+    count.textContent = `${row.memberCount} tab${row.memberCount !== 1 ? 's' : ''}`;
+    el.appendChild(count);
+
+    // Actions container (right-aligned, visible on hover)
+    const actions = document.createElement('div');
+    actions.className = 'tab-group-header-actions';
+
+    if (this.expandedViewType === 'active') {
+      // Ungroup all button
+      const ungroupAllBtn = document.createElement('button');
+      ungroupAllBtn.className = 'tab-group-header-btn';
+      ungroupAllBtn.textContent = 'Ungroup all';
+      ungroupAllBtn.title = 'Remove all tabs from this group';
+      ungroupAllBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try {
+          const tabIds = row.members.filter(m => m.tabId).map(m => m.tabId);
+          for (const tabId of tabIds) {
+            await chrome.tabs.ungroup(tabId);
+          }
+          this.showActiveTabs();
+        } catch (err) {
+          console.warn('Failed to ungroup tabs:', err);
+        }
+      });
+      actions.appendChild(ungroupAllBtn);
+    }
+
+    if (this.expandedViewType === 'closed') {
+      // Restore group button
+      const restoreBtn = document.createElement('button');
+      restoreBtn.className = 'tab-group-header-btn restore';
+      restoreBtn.textContent = 'Restore group';
+      restoreBtn.title = 'Re-open all tabs from this group';
+      restoreBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await this.restoreClosedGroup(row.tabGroupId);
+      });
+      actions.appendChild(restoreBtn);
+    }
+
+    el.appendChild(actions);
+    return el;
+};
+
 BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroupPos) {
     const urlItem = document.createElement('div');
     urlItem.className = 'url-item';
 
-    // Tab group visual treatment
+    // Tab group visual treatment — nested bracket lines via inset box-shadow.
+    // --group-color = bold group color (same as header), --item-color = lighter item color.
     const groupId = urlData.groupId ?? this.openTabGroupByUrl?.[urlData.url] ?? -1;
     const groupInfo = groupId > -1 ? this.tabGroupsById?.[groupId] : null;
-    if (groupInfo && tabGroupPos) {
-      const cssColor = BulletHistory.TAB_GROUP_COLORS[groupInfo.color] || '#5f6368';
-      urlItem.classList.add('tab-grouped', `tab-group-${tabGroupPos}`);
-      urlItem.style.borderLeftColor = cssColor;
-      urlItem.dataset.groupId = groupId;
-      urlItem.dataset.groupColor = groupInfo.color || 'grey';
-
-      // Only show label on the first item (or only item) in the group
-      if (tabGroupPos === 'first' || tabGroupPos === 'only') {
-        const groupLabel = document.createElement('span');
-        groupLabel.className = 'tab-group-label';
-        groupLabel.style.backgroundColor = cssColor;
-        groupLabel.textContent = groupInfo.title || 'Group';
-        urlItem.appendChild(groupLabel);
+    if (tabGroupPos) {
+      urlItem.classList.add(`tab-group-${tabGroupPos}`);
+      if (groupInfo) {
+        const cssColor = BulletHistory.TAB_GROUP_COLORS[groupInfo.color] || '#5f6368';
+        urlItem.classList.add('tab-grouped');
+        urlItem.style.setProperty('--group-color', cssColor);
+        urlItem.style.setProperty('--item-color', BulletHistory.lightenColor(cssColor, 0.5));
+        urlItem.dataset.groupId = groupId;
+        urlItem.dataset.groupColor = groupInfo.color || 'grey';
+      } else {
+        urlItem.classList.add('tab-ungrouped');
       }
     }
 
@@ -1263,6 +1528,105 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroup
     this.checkBookmarkStatus(urlData.url, bookmarkBtn);
 
     actionsDiv.appendChild(bookmarkBtn);
+
+    // Tab group action buttons (active tabs only)
+    if (this.expandedViewType === 'active' && urlData.tabId) {
+      const currentGroupId = urlData.groupId ?? -1;
+
+      if (currentGroupId > -1) {
+        // Ungroup button
+        const ungroupBtn = document.createElement('button');
+        ungroupBtn.className = 'icon-btn ungroup';
+        ungroupBtn.textContent = 'Ungroup';
+        ungroupBtn.title = 'Remove from tab group';
+        ungroupBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          try {
+            await chrome.tabs.ungroup(urlData.tabId);
+            this.showActiveTabs();
+          } catch (err) {
+            console.warn('Failed to ungroup tab:', err);
+          }
+        });
+        actionsDiv.appendChild(ungroupBtn);
+      }
+
+      // Add to group button (shows picker of existing groups)
+      const addToGroupBtn = document.createElement('button');
+      addToGroupBtn.className = 'icon-btn add-to-group';
+      addToGroupBtn.textContent = 'Add to group';
+      addToGroupBtn.title = 'Add tab to an existing group';
+      addToGroupBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        // Remove any existing picker
+        const existing = actionsDiv.querySelector('.tab-group-picker');
+        if (existing) { existing.remove(); return; }
+
+        try {
+          const groups = chrome.tabGroups ? await chrome.tabGroups.query({}) : [];
+          // Filter out the tab's current group
+          const available = groups.filter(g => g.id !== currentGroupId);
+          if (available.length === 0) {
+            addToGroupBtn.textContent = 'No groups';
+            setTimeout(() => { addToGroupBtn.textContent = 'Add to group'; }, 1500);
+            return;
+          }
+
+          const picker = document.createElement('div');
+          picker.className = 'tab-group-picker';
+          for (const group of available) {
+            const option = document.createElement('button');
+            option.className = 'tab-group-picker-option';
+            const cssColor = BulletHistory.TAB_GROUP_COLORS[group.color] || '#5f6368';
+            option.innerHTML = `<span class="picker-dot" style="background:${cssColor}"></span>${group.title || 'Untitled'}`;
+            option.addEventListener('click', async (ev) => {
+              ev.stopPropagation();
+              try {
+                await chrome.tabs.group({ tabIds: [urlData.tabId], groupId: group.id });
+                this.showActiveTabs();
+              } catch (err) {
+                console.warn('Failed to add tab to group:', err);
+              }
+            });
+            picker.appendChild(option);
+          }
+          actionsDiv.appendChild(picker);
+
+          // Close picker when clicking elsewhere
+          const closePicker = (ev) => {
+            if (!picker.contains(ev.target) && ev.target !== addToGroupBtn) {
+              picker.remove();
+              document.removeEventListener('click', closePicker, true);
+            }
+          };
+          setTimeout(() => document.addEventListener('click', closePicker, true), 0);
+        } catch (err) {
+          console.warn('Failed to query tab groups:', err);
+        }
+      });
+      actionsDiv.appendChild(addToGroupBtn);
+
+      // New group button
+      const newGroupBtn = document.createElement('button');
+      newGroupBtn.className = 'icon-btn new-group';
+      newGroupBtn.textContent = 'New group';
+      newGroupBtn.title = 'Create a new tab group with this tab';
+      newGroupBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try {
+          const newGroupId = await chrome.tabs.group({ tabIds: [urlData.tabId] });
+          // Auto-title with domain
+          const tabDomain = urlData.domain || '';
+          if (tabDomain) {
+            await chrome.tabGroups.update(newGroupId, { title: tabDomain });
+          }
+          this.showActiveTabs();
+        } catch (err) {
+          console.warn('Failed to create tab group:', err);
+        }
+      });
+      actionsDiv.appendChild(newGroupBtn);
+    }
 
     // Right side: Favicon + URL as clickable link
     const rightDiv = document.createElement('div');
@@ -1554,33 +1918,64 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroup
     rightDiv.appendChild(favicon);
     rightDiv.appendChild(urlTextContainer);
 
-    // Expand/collapse button (chevron)
+    // Expand toggle button — click to pin open, hover to preview
     const expandBtn = document.createElement('button');
     expandBtn.className = 'url-item-expand-btn';
-    expandBtn.textContent = '▶';
-    expandBtn.title = 'Expand details';
+    expandBtn.title = 'Toggle details (hover to preview)';
+    const expandIcon = document.createElement('span');
+    expandIcon.className = 'expand-icon';
+    expandIcon.textContent = '▾';
+    const toggleBox = document.createElement('span');
+    toggleBox.className = 'expand-toggle-box';
+    expandBtn.appendChild(expandIcon);
+    expandBtn.appendChild(toggleBox);
 
-    const toggleExpand = (item) => {
-      const isExpanding = !item.classList.contains('expanded');
-      item.classList.toggle('expanded');
-
-      // Lazy-load visit times on first expand
-      if (isExpanding) {
+    const setExpanded = (item, expand) => {
+      if (expand && !item.classList.contains('expanded')) {
+        item.classList.add('expanded');
         loadVisitTimes();
+      } else if (!expand && item.classList.contains('expanded')) {
+        item.classList.remove('expanded');
       }
-
-      // Let height grow naturally when expanded
       const placeholder = item.closest('.url-item-placeholder') || item;
-      placeholder.style.height = isExpanding ? 'auto' : `${this.urlListRowHeight}px`;
+      placeholder.style.height = expand ? 'auto' : `${this.urlListRowHeight}px`;
     };
 
+    // Click toggles pinned state
     expandBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      toggleExpand(e.target.closest('.url-item'));
+      const item = e.target.closest('.url-item');
+      const isPinned = item.classList.toggle('expand-pinned');
+      // toggle visual handled by CSS
+      setExpanded(item, isPinned);
+    });
+
+    // Hover on the url-item expands temporarily (unless pinned)
+    urlItem.addEventListener('mouseenter', () => {
+      const item = expandBtn.closest('.url-item');
+      if (item && !item.classList.contains('expand-pinned')) {
+        setExpanded(item, true);
+        item.classList.add('expand-hover');
+      }
+    });
+
+    urlItem.addEventListener('mouseleave', () => {
+      const item = expandBtn.closest('.url-item');
+      if (item && item.classList.contains('expand-hover')) {
+        item.classList.remove('expand-hover');
+        if (!item.classList.contains('expand-pinned')) {
+          setExpanded(item, false);
+        }
+      }
     });
 
     // Listen for programmatic expand (from Expand All button)
     expandBtn.addEventListener('_expand', () => {
+      const item = expandBtn.closest('.url-item');
+      if (item) {
+        item.classList.add('expand-pinned');
+        expandBtn.querySelector('.expand-label').textContent = 'collapse';
+      }
       loadVisitTimes();
     });
 
@@ -1627,6 +2022,7 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroup
     urlItem.appendChild(leftDiv);
     urlItem.appendChild(rightDiv);
     urlItem.appendChild(expandBtn);
+
     urlItem.appendChild(xBtn);
 
     return urlItem;
@@ -1684,13 +2080,13 @@ BulletHistory.prototype.setupTabGroupDrag = function(urlItem, urlData) {
       const targetGroupId = urlData.groupId ?? -1;
 
       try {
-        if (targetGroupId > -1) {
+        if (targetGroupId > -1 && sourceGroupId !== targetGroupId) {
           // Target is in a group — add source to that group
           await chrome.tabs.group({ tabIds: [sourceTabId], groupId: targetGroupId });
-        } else if (sourceGroupId > -1) {
-          // Source is in a group — add target to that group
-          await chrome.tabs.group({ tabIds: [targetTabId], groupId: sourceGroupId });
-        } else {
+        } else if (sourceGroupId > -1 && targetGroupId === -1) {
+          // Source is grouped, target is ungrouped — ungroup the source
+          await chrome.tabs.ungroup(sourceTabId);
+        } else if (sourceGroupId === -1 && targetGroupId === -1) {
           // Neither is in a group — create a new group with both
           const newGroupId = await chrome.tabs.group({ tabIds: [sourceTabId, targetTabId] });
           // Auto-title with shared domain if same domain
@@ -2187,6 +2583,51 @@ BulletHistory.prototype.deleteUrlWithAnimation = function(urlItemElement, url, d
     } else {
       // No element to animate, delete immediately
       this.deleteUrl(url, domain, date);
+    }
+};
+
+// Restore a group of recently closed tabs: re-open them and put them in a new
+// Chrome tab group with the original title and color.
+BulletHistory.prototype.restoreClosedGroup = async function(groupId) {
+    // Collect all closed URLs that belonged to this group
+    const groupUrls = (this.expandedUrls || []).filter(u => u.groupId === groupId);
+    if (groupUrls.length === 0) return;
+
+    const groupInfo = this.tabGroupsById?.[groupId];
+
+    try {
+      // Open all tabs
+      const tabIds = [];
+      for (const item of groupUrls) {
+        const tab = await chrome.tabs.create({ url: item.url, active: false });
+        tabIds.push(tab.id);
+      }
+
+      // Group them
+      if (tabIds.length > 0) {
+        const newGroupId = await chrome.tabs.group({ tabIds });
+        // Restore original title and color
+        const updateProps = {};
+        if (groupInfo?.title) updateProps.title = groupInfo.title;
+        if (groupInfo?.color) updateProps.color = groupInfo.color;
+        if (Object.keys(updateProps).length > 0) {
+          await chrome.tabGroups.update(newGroupId, updateProps);
+        }
+      }
+
+      // Remove restored tabs from closedTabs storage
+      const result = await chrome.storage.local.get(['closedTabs']);
+      const closedTabs = result.closedTabs || [];
+      const restoredUrls = new Set(groupUrls.map(u => u.url));
+      const remaining = closedTabs.filter(t =>
+        !(t.groupId === groupId && restoredUrls.has(t.url))
+      );
+      await chrome.storage.local.set({ closedTabs: remaining });
+
+      // Refresh the view
+      this.showRecentlyClosed();
+    } catch (err) {
+      console.warn('Failed to restore closed group:', err);
     }
 };
 

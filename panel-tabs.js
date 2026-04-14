@@ -214,27 +214,34 @@ BulletHistory.prototype.showRecentlyClosed = function() {
     chrome.storage.local.get(['closedTabs'], (result) => {
       const closedTabs = result.closedTabs || [];
 
-      // Convert to URL format and add domain
+      // Convert to URL format and add domain + group info
       const closedUrls = closedTabs.map(tabData => {
+        const base = {
+          url: tabData.url,
+          title: tabData.title,
+          favIconUrl: tabData.favIconUrl,
+          closedAt: tabData.closedAt,
+          visitCount: 1,
+          lastVisit: tabData.closedAt,
+          groupId: tabData.groupId ?? -1,
+          groupTitle: tabData.groupTitle,
+          groupColor: tabData.groupColor
+        };
         try {
-          return {
-            url: tabData.url,
-            title: tabData.title,
-            favIconUrl: tabData.favIconUrl,
-            closedAt: tabData.closedAt,
-            domain: new URL(tabData.url).hostname.replace(/^www\./, ''),
-            visitCount: 1,
-            lastVisit: tabData.closedAt
-          };
+          base.domain = new URL(tabData.url).hostname.replace(/^www\./, '');
         } catch (e) {
-          return {
-            url: tabData.url,
-            title: tabData.title,
-            favIconUrl: tabData.favIconUrl,
-            closedAt: tabData.closedAt,
-            domain: tabData.url,
-            visitCount: 1,
-            lastVisit: tabData.closedAt
+          base.domain = tabData.url;
+        }
+        return base;
+      });
+
+      // Register closed-tab group metadata in tabGroupsById so createUrlItem
+      // can render group labels/colors even for groups that no longer exist.
+      closedUrls.forEach(item => {
+        if (item.groupId > -1 && !this.tabGroupsById[item.groupId]) {
+          this.tabGroupsById[item.groupId] = {
+            title: item.groupTitle || '',
+            color: item.groupColor || 'grey'
           };
         }
       });
@@ -395,52 +402,17 @@ BulletHistory.prototype.showActiveTabs = async function() {
       tabsByWindow[tab.windowId].push(tab);
     });
 
-    // Sort tabs within each window: grouped tabs stay together, then by sort mode
+    // Sort tabs within each window by sort mode, then keep tab groups contiguous
     Object.values(tabsByWindow).forEach(tabs => {
-      // Primary sort by sort mode
       const sortFn = this.sortMode === 'recent' ? (a, b) => b.openedAt - a.openedAt
         : this.sortMode === 'popular' ? (a, b) => b.lastAccessed - a.lastAccessed
         : this.sortMode === 'alphabetical' ? (a, b) => (a.title || a.url).localeCompare(b.title || b.url)
         : (a, b) => b.duration - a.duration;
 
-      // Sort within groups, then order groups by their top-ranked member
-      const grouped = {};
-      const ungrouped = [];
-      tabs.forEach(tab => {
-        if (tab.groupId > -1) {
-          if (!grouped[tab.groupId]) grouped[tab.groupId] = [];
-          grouped[tab.groupId].push(tab);
-        } else {
-          ungrouped.push(tab);
-        }
-      });
-
-      // Sort within each group
-      Object.values(grouped).forEach(g => g.sort(sortFn));
-      ungrouped.sort(sortFn);
-
-      // Sort groups by their first member's sort position
-      const groupOrder = Object.keys(grouped).sort((a, b) => sortFn(grouped[a][0], grouped[b][0]));
-
-      // Merge: interleave groups and ungrouped by their top item
-      const result = [];
-      let gi = 0, ui = 0;
-      while (gi < groupOrder.length || ui < ungrouped.length) {
-        const groupTop = gi < groupOrder.length ? grouped[groupOrder[gi]][0] : null;
-        const ungroupedTop = ui < ungrouped.length ? ungrouped[ui] : null;
-
-        if (groupTop && (!ungroupedTop || sortFn(groupTop, ungroupedTop) <= 0)) {
-          result.push(...grouped[groupOrder[gi]]);
-          gi++;
-        } else {
-          result.push(ungroupedTop);
-          ui++;
-        }
-      }
-
-      // Replace tabs array contents
+      tabs.sort(sortFn);
+      const cohesive = this.applyTabGroupCohesion(tabs);
       tabs.length = 0;
-      tabs.push(...result);
+      tabs.push(...cohesive);
     });
 
     // Flatten back to array, keeping window groups together

@@ -328,3 +328,67 @@ BulletHistory.prototype.getUniqueUrlCountForCell = function(domain, timeSlot, is
       return 0;
     }
 };
+
+// Reorder a list so that URLs belonging to the same Chrome tab group are
+// contiguous, while preserving the existing relative order. Each group is
+// inserted at the position of its first member, so a tab group always ends up
+// where its best-ranked member would have landed under the current sort.
+//
+// items     - array of objects with `url` and optionally `groupId`
+// bucketFn  - optional (item) => key; cohesion never crosses bucket boundaries
+//             (e.g. windowId for active tabs, date header for history views).
+//             Items in the same bucket retain their relative order.
+//
+// Group lookup falls back to `openTabGroupByUrl` so historical/recent items
+// that happen to be open in a grouped tab are still kept together.
+BulletHistory.prototype.applyTabGroupCohesion = function(items, bucketFn) {
+    if (!items || items.length < 2) return items;
+
+    const getGroupId = (item) => {
+      const direct = item.groupId;
+      if (direct != null && direct > -1) return direct;
+      const fromOpen = this.openTabGroupByUrl?.[item.url];
+      return (fromOpen != null && fromOpen > -1) ? fromOpen : -1;
+    };
+
+    // Bucket items in encounter order
+    const buckets = new Map();
+    const bucketOrder = [];
+    for (const item of items) {
+      const key = bucketFn ? bucketFn(item) : '__all__';
+      // Map keys distinguish null/undefined fine; coerce to a stable token.
+      const k = key == null ? '__none__' : key;
+      if (!buckets.has(k)) {
+        buckets.set(k, []);
+        bucketOrder.push(k);
+      }
+      buckets.get(k).push(item);
+    }
+
+    const result = [];
+    for (const k of bucketOrder) {
+      const bucket = buckets.get(k);
+      const groupMembers = new Map(); // groupId -> items in original order
+      const slots = []; // either { type: 'group', gid } or { type: 'item', item }
+      for (const item of bucket) {
+        const gid = getGroupId(item);
+        if (gid > -1) {
+          if (!groupMembers.has(gid)) {
+            groupMembers.set(gid, []);
+            slots.push({ type: 'group', gid });
+          }
+          groupMembers.get(gid).push(item);
+        } else {
+          slots.push({ type: 'item', item });
+        }
+      }
+      for (const slot of slots) {
+        if (slot.type === 'group') {
+          result.push(...groupMembers.get(slot.gid));
+        } else {
+          result.push(slot.item);
+        }
+      }
+    }
+    return result;
+};

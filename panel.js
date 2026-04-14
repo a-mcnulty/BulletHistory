@@ -141,10 +141,18 @@ class BulletHistory {
         // Reload calendar data and refresh UI
         this.refreshCalendarUI();
       } else if (message.type === 'tabsUpdated') {
-        // Refresh active tabs view if it's currently open
-        if (this.expandedViewType === 'active') {
-          this.showActiveTabs();
-        }
+        // Refresh group data so any open expanded view reflects current groups
+        this.loadOpenTabsData().then(() => {
+          if (this.expandedViewType === 'active') {
+            this.showActiveTabs();
+          } else if (this.expandedViewType === 'closed') {
+            this.showRecentlyClosed();
+          } else if (this.expandedViewType && this.currentFilteredUrls) {
+            // Other expanded views (recent, day, hour, domain, full):
+            // re-render in place so group cohesion and visuals update
+            this.renderUrlList();
+          }
+        });
       }
     });
 

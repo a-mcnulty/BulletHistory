@@ -385,13 +385,27 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
   const result = await chrome.storage.local.get(['closedTabs']);
   const closedTabs = result.closedTabs || [];
 
+  // Snapshot tab group info before adding to closed list. The group may be
+  // removed by the time the user looks at Recently Closed, so we persist
+  // the metadata from our in-memory cache.
+  const closedGroupId = tabData.groupId ?? -1;
+  const closedGroupInfo = closedGroupId > -1 ? tabGroupCache.get(closedGroupId) : null;
+
   // Add new closed tab at the beginning
-  closedTabs.unshift({
+  const closedEntry = {
     url: tabData.url,
     title: tabData.title,
     favIconUrl: tabData.favIconUrl,
     closedAt: Date.now()
-  });
+  };
+  if (closedGroupId > -1) {
+    closedEntry.groupId = closedGroupId;
+    if (closedGroupInfo) {
+      closedEntry.groupTitle = closedGroupInfo.title;
+      closedEntry.groupColor = closedGroupInfo.color;
+    }
+  }
+  closedTabs.unshift(closedEntry);
 
   // Keep only the most recent MAX_CLOSED_TABS
   if (closedTabs.length > MAX_CLOSED_TABS) {
@@ -416,6 +430,67 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     // Panel might not be open, ignore error
   });
 });
+
+// In-memory cache of tab group metadata (title, color) so we can snapshot it
+// onto closed-tab records without an async lookup (the group may already be
+// gone by the time onRemoved fires for the last tab in the group).
+const tabGroupCache = new Map(); // groupId -> { title, color }
+
+// Refresh the group metadata cache from Chrome's live state.
+async function refreshTabGroupCache() {
+  try {
+    if (chrome.tabGroups) {
+      const groups = await chrome.tabGroups.query({});
+      tabGroupCache.clear();
+      for (const g of groups) {
+        tabGroupCache.set(g.id, { title: g.title || '', color: g.color });
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to refresh tab group cache:', e);
+  }
+}
+
+// Re-sync groupId for every tracked tab from the live chrome.tabs state.
+// chrome.tabs.onUpdated does not reliably fire on groupId-only changes
+// (drag a tab into/out of a group, group removed, etc.), so we listen to
+// chrome.tabGroups events and reconcile from the source of truth.
+async function reconcileTabGroups() {
+  await refreshTabGroupCache();
+  try {
+    const tabs = await chrome.tabs.query({});
+    let changed = false;
+    for (const tab of tabs) {
+      const newGroupId = tab.groupId ?? -1;
+      const mem = openTabsInMemory[tab.id];
+      if (mem && mem.groupId !== newGroupId) {
+        mem.groupId = newGroupId;
+        changed = true;
+      }
+      const active = activeTabs.get(tab.id);
+      if (active && active.groupId !== newGroupId) {
+        active.groupId = newGroupId;
+        changed = true;
+      }
+    }
+    if (changed) {
+      // Group membership changes are user-visible and infrequent — flush
+      // immediately rather than waiting on the 5s debounce so the panel
+      // doesn't render stale group cohesion.
+      await flushOpenTabs();
+      chrome.runtime.sendMessage({ type: 'tabsUpdated' }).catch(() => {});
+    }
+  } catch (e) {
+    console.warn('Failed to reconcile tab groups:', e);
+  }
+}
+
+if (chrome.tabGroups) {
+  chrome.tabGroups.onCreated.addListener(reconcileTabGroups);
+  chrome.tabGroups.onUpdated.addListener(reconcileTabGroups);
+  chrome.tabGroups.onMoved.addListener(reconcileTabGroups);
+  chrome.tabGroups.onRemoved.addListener(reconcileTabGroups);
+}
 
 // Track tab activation for time tracking
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
@@ -480,13 +555,17 @@ chrome.storage.local.get(['openTabs', 'lastAlarmTime'], (result) => {
   chrome.tabs.query({}, async (tabs) => {
     let activeTab = null;
 
+    // Seed the group metadata cache so closed-tab records can snapshot it
+    await refreshTabGroupCache();
+
     tabs.forEach(tab => {
       if (tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://') && tab.url !== 'about:blank') {
         const tabInfo = {
           url: tab.url,
           title: tab.title || tab.url,
           favIconUrl: tab.favIconUrl,
-          openedAt: storedTabs[tab.id]?.openedAt || Date.now() // Use stored time or current time
+          openedAt: storedTabs[tab.id]?.openedAt || Date.now(), // Use stored time or current time
+          groupId: tab.groupId ?? -1
         };
         activeTabs.set(tab.id, tabInfo);
         openTabsInMemory[tab.id] = tabInfo;
