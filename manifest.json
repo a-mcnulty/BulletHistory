@@ -19,7 +19,9 @@
     "alarms"
   ],
   "host_permissions": [
-    "https://www.googleapis.com/*"
+    "https://www.googleapis.com/*",
+    "http://*/*",
+    "https://*/*"
   ],
   "oauth2": {
     "client_id": "596343023740-gbdifhp64ffev7vfrv6tiiccfgk59svn.apps.googleusercontent.com",

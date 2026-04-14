@@ -1852,6 +1852,83 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroup
     tablesContainer.appendChild(timeSection);
     urlDisplay.appendChild(tablesContainer);
 
+    // OG metadata section (loaded lazily on expand)
+    // OG metadata section — added to shared grid with a divider
+    const ogDivider = document.createElement('div');
+    ogDivider.className = 'url-display-section-divider';
+    ogDivider.style.display = 'none';
+    tablesContainer.appendChild(ogDivider);
+
+    const ogSection = document.createElement('div');
+    ogSection.className = 'url-display-section';
+    ogSection.style.display = 'none';
+    tablesContainer.appendChild(ogSection);
+
+    // Loader row (shown while fetching)
+    const ogLoaderRow = document.createElement('div');
+    ogLoaderRow.className = 'url-display-row';
+    ogLoaderRow.innerHTML = '<span class="meta-label">og:data</span><span class="meta-value og-loader"><span class="og-loader-dots"></span></span>';
+
+    // OG image container (outside grid, below tables)
+    const ogImageContainer = document.createElement('div');
+    ogImageContainer.className = 'url-display-og';
+    urlDisplay.appendChild(ogImageContainer);
+
+    let ogLoaded = false;
+    const loadOgData = () => {
+      if (ogLoaded || !urlData.url) return;
+      ogLoaded = true;
+
+      // Show loader
+      ogDivider.style.display = '';
+      ogSection.style.display = '';
+      ogSection.appendChild(ogLoaderRow);
+
+      this.fetchOpenGraphData(urlData.url).then(og => {
+        ogSection.innerHTML = '';
+
+        if (!og) {
+          ogDivider.style.display = 'none';
+          ogSection.style.display = 'none';
+          return;
+        }
+
+        const rows = [];
+        if (og.ogSiteName) rows.push({ label: 'og:site_name', value: og.ogSiteName });
+        if (og.ogType) rows.push({ label: 'og:type', value: og.ogType });
+        if (og.ogTitle) rows.push({ label: 'og:title', value: og.ogTitle });
+        if (og.ogDescription) rows.push({ label: 'og:description', value: og.ogDescription, wrap: true });
+        if (og.twitterTitle && og.twitterTitle !== og.ogTitle) rows.push({ label: 'twitter:title', value: og.twitterTitle });
+        if (og.twitterDescription && og.twitterDescription !== og.ogDescription) rows.push({ label: 'twitter:description', value: og.twitterDescription, wrap: true });
+        if (og.metaDescription && og.metaDescription !== og.ogDescription && og.metaDescription !== og.twitterDescription) rows.push({ label: 'description', value: og.metaDescription, wrap: true });
+
+        if (rows.length === 0 && !og.ogImage) {
+          ogDivider.style.display = 'none';
+          ogSection.style.display = 'none';
+          return;
+        }
+
+        rows.forEach(r => {
+          const row = document.createElement('div');
+          row.className = 'url-display-row';
+          row.innerHTML = `<span class="meta-label">${r.label}</span><span class="meta-value${r.wrap ? ' og-description' : ''}">${r.value}</span>`;
+          ogSection.appendChild(row);
+        });
+
+        // OG image row in the grid
+        if (og.ogImage) {
+          let imgSrc = og.ogImage;
+          if (imgSrc.startsWith('/')) {
+            try { imgSrc = new URL(urlData.url).origin + imgSrc; } catch (e) {}
+          }
+          const imgRow = document.createElement('div');
+          imgRow.className = 'url-display-row';
+          imgRow.innerHTML = `<span class="meta-label">og:image</span><span class="meta-value"><img class="og-image" src="${imgSrc}" alt="" onerror="this.style.display='none'"></span>`;
+          ogSection.appendChild(imgRow);
+        }
+      });
+    };
+
     // Helper to populate time rows
     const populateTimeRows = (timeData) => {
       const openToday = timeData?.openTodaySeconds || 0;
@@ -1924,6 +2001,7 @@ BulletHistory.prototype.createUrlItem = function(urlData, domain, date, tabGroup
         // Now show expanded content and measure
         item.classList.add('expanded');
         loadVisitTimes();
+        loadOgData();
         const fullHeight = placeholder.scrollHeight;
         // Transition to full height
         placeholder.style.height = `${fullHeight}px`;
@@ -2218,8 +2296,9 @@ BulletHistory.prototype.showUrlPreview = async function(urlData, event) {
     const ogData = await this.fetchOpenGraphData(urlData.url);
 
     // Update with OG data if available
-    const descriptionHtml = ogData.description ? `
-      <div class="url-preview-description">${ogData.description}</div>
+    const description = ogData.ogDescription || ogData.twitterDescription || ogData.metaDescription;
+    const descriptionHtml = description ? `
+      <div class="url-preview-description">${description}</div>
     ` : '';
 
     previewTooltip.innerHTML = `
@@ -2239,7 +2318,7 @@ BulletHistory.prototype.showUrlPreview = async function(urlData, event) {
                height="32"
                alt=""
                onerror="(function(t){const tries=['1','2','3','4','5'];const idx=parseInt(t.dataset.tried||'0');if(idx<tries.length){t.dataset.tried=tries[idx];try{const u=new URL('${urlData.url}');const isHttp=u.protocol==='http:'||u.protocol==='https:';const urls=isHttp?[u.protocol+'//'+u.hostname+'/favicon.ico',u.protocol+'//'+u.hostname+'/favicon.png',u.protocol+'//'+u.hostname+'/apple-touch-icon.png','https://icons.duckduckgo.com/ip3/'+u.hostname+'.ico','']:['https://icons.duckduckgo.com/ip3/'+u.hostname+'.ico',''];t.src=urls[idx]||'';if(!urls[idx])t.style.display='none';}catch(e){t.style.display='none';}}else{t.style.display='none';}})(this)">
-          <div class="url-preview-title">${ogData.title || urlData.title || 'Untitled'}</div>
+          <div class="url-preview-title">${ogData.ogTitle || ogData.twitterTitle || urlData.title || 'Untitled'}</div>
         </div>
         ${descriptionHtml}
         <div class="url-preview-url">${urlData.url}</div>
@@ -2300,8 +2379,14 @@ BulletHistory.prototype.fetchOpenGraphData = async function(url) {
 
     // Default empty data
     const defaultData = {
-      title: null,
-      description: null
+      ogTitle: null,
+      ogDescription: null,
+      ogSiteName: null,
+      ogType: null,
+      ogImage: null,
+      twitterTitle: null,
+      twitterDescription: null,
+      metaDescription: null
     };
 
     try {
@@ -2319,13 +2404,19 @@ BulletHistory.prototype.fetchOpenGraphData = async function(url) {
 
       const html = await response.text();
 
-      // Parse OG meta tags
+      // Parse meta tags
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
 
       const ogData = {
-        title: this.getMetaContent(doc, 'og:title') || this.getMetaContent(doc, 'twitter:title'),
-        description: this.getMetaContent(doc, 'og:description') || this.getMetaContent(doc, 'twitter:description') || this.getMetaContent(doc, 'description')
+        ogTitle: this.getMetaContent(doc, 'og:title'),
+        ogDescription: this.getMetaContent(doc, 'og:description'),
+        ogSiteName: this.getMetaContent(doc, 'og:site_name'),
+        ogType: this.getMetaContent(doc, 'og:type'),
+        ogImage: this.getMetaContent(doc, 'og:image'),
+        twitterTitle: this.getMetaContent(doc, 'twitter:title'),
+        twitterDescription: this.getMetaContent(doc, 'twitter:description'),
+        metaDescription: this.getMetaContent(doc, 'description')
       };
 
       // Cache the result
