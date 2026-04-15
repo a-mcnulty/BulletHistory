@@ -1213,10 +1213,26 @@ BulletHistory.prototype.setupCellClick = function() {
       void refreshBtn.offsetWidth;
       refreshBtn.classList.add('spinning');
 
+      // Reload all data sources
+      await this.loadFaviconCache();
+      await this.fetchHistory();
+      await this.loadOpenTabsData();
       await this.refreshUrlTimeCache();
-      this.updateVirtualGrid();
 
-      // Re-render the current expanded view with fresh data
+      // Regenerate grid structure
+      this.generateDates();
+      if (this.viewMode === 'hour') {
+        this.generateHours();
+        await this.organizeHistoryByHour();
+        this.sortedDomains = this.sortDomainsForHourView();
+      } else {
+        this.sortedDomains = this.getSortedDomains();
+      }
+
+      // Re-render everything
+      this.renderDateHeader();
+      this.updateVirtualGrid();
+      this.refreshCalendarUI();
       this.refreshExpandedView();
     });
 
