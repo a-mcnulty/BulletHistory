@@ -2,6 +2,19 @@
 
 All notable changes to Bullet History will be documented in this file.
 
+## [1.2.1] - 2026-04-14
+
+### Changed
+- **Full refresh button** — Refresh button now reloads all data (history, favicons, tabs, time tracking, calendar) instead of only time data
+- **Bottom menu buttons** — Restyled with colored left-border accents, stronger active states with tinted backgrounds, icons hidden, "All" renamed to "History"
+
+### Fixed
+- **Single-tab windows disappearing** — Fixed same-reference array mutation bug in `applyTabGroupCohesion` that emptied windows with one tab
+- **Missing tabs after reload** — Backfill from `chrome.tabs.query()` for tabs not yet written to storage
+- **chrome:// URLs now visible** — Removed filtering of chrome:// pages from background script and Active Tabs view
+- **Ungroup not refreshing UI** — Added delay before refresh to allow Chrome state to settle
+- **Removed debug logging** — Cleaned up console.log statements from Active Tabs
+
 ## [1.2.0] - 2026-04-13
 
 ### Added
