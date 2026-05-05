@@ -95,6 +95,7 @@ class BulletHistory {
     await this.loadColors();
     await this.loadFaviconCache();
     await this.fetchHistory();
+    await this.deriveColorsFromFavicons();
     await this.loadOpenTabsData();
     await this.loadUrlTimeDataForCells();
     await this.loadTabSessions();
@@ -501,6 +502,112 @@ class BulletHistory {
     const saturation = 60 + Math.floor(Math.random() * 20); // 60-80%
     const lightness = 80 + Math.floor(Math.random() * 10);  // 80-90%
     return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+  }
+
+  extractColorFromImage(imgSrc) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const size = 32;
+          canvas.width = size;
+          canvas.height = size;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, size, size);
+          const data = ctx.getImageData(0, 0, size, size).data;
+
+          const buckets = new Array(36).fill(null).map(() => ({ count: 0, rSum: 0, gSum: 0, bSum: 0 }));
+          let chromaPixels = 0;
+          let grayRSum = 0, grayGSum = 0, grayBSum = 0, grayCount = 0;
+
+          for (let i = 0; i < data.length; i += 4) {
+            const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+            if (a < 128) continue;
+            const cMax = Math.max(r, g, b), cMin = Math.min(r, g, b);
+            const delta = cMax - cMin;
+            const lightness = (cMax + cMin) / 2;
+            if (lightness > 240 || lightness < 15) continue;
+
+            if (delta < 20) {
+              grayRSum += r; grayGSum += g; grayBSum += b; grayCount++;
+              continue;
+            }
+
+            chromaPixels++;
+            let hue = 0;
+            if (cMax === r) hue = 60 * (((g - b) / delta + 6) % 6);
+            else if (cMax === g) hue = 60 * ((b - r) / delta + 2);
+            else hue = 60 * ((r - g) / delta + 4);
+            hue = Math.round(hue);
+            if (hue < 0) hue += 360;
+
+            const bucket = Math.floor(hue / 10) % 36;
+            buckets[bucket].count++;
+            buckets[bucket].rSum += r;
+            buckets[bucket].gSum += g;
+            buckets[bucket].bSum += b;
+          }
+
+          let avgR, avgG, avgB;
+
+          if (chromaPixels > 0) {
+            let best = buckets[0], bestCount = 0;
+            for (const b of buckets) {
+              if (b.count > bestCount) { best = b; bestCount = b.count; }
+            }
+            avgR = Math.round(best.rSum / best.count);
+            avgG = Math.round(best.gSum / best.count);
+            avgB = Math.round(best.bSum / best.count);
+          } else if (grayCount > 0) {
+            avgR = Math.round(grayRSum / grayCount);
+            avgG = Math.round(grayGSum / grayCount);
+            avgB = Math.round(grayBSum / grayCount);
+          } else {
+            resolve(null); return;
+          }
+
+          const rf = avgR / 255, gf = avgG / 255, bf = avgB / 255;
+          const cMax2 = Math.max(rf, gf, bf), cMin2 = Math.min(rf, gf, bf);
+          const l = (cMax2 + cMin2) / 2;
+          let h = 0, s = 0;
+          if (cMax2 !== cMin2) {
+            const d = cMax2 - cMin2;
+            s = l > 0.5 ? d / (2 - cMax2 - cMin2) : d / (cMax2 + cMin2);
+            if (cMax2 === rf) h = ((gf - bf) / d + (gf < bf ? 6 : 0)) / 6;
+            else if (cMax2 === gf) h = ((bf - rf) / d + 2) / 6;
+            else h = ((rf - gf) / d + 4) / 6;
+          }
+
+          const hue = Math.round(h * 360);
+          const sat = chromaPixels > 0
+            ? Math.max(40, Math.min(80, Math.round(s * 100)))
+            : Math.max(5, Math.min(15, Math.round(s * 100)));
+          const lit = Math.max(75, Math.min(88, Math.round(l * 100)));
+          resolve(`hsl(${hue}, ${sat}%, ${lit}%)`);
+        } catch {
+          resolve(null);
+        }
+      };
+      img.onerror = () => resolve(null);
+      img.src = imgSrc;
+    });
+  }
+
+  async deriveColorsFromFavicons() {
+    const promises = [];
+    for (const domain of Object.keys(this.historyData)) {
+      if (!domain || domain.trim().length === 0) continue;
+      const googleUrl = `https://www.google.com/s2/favicons?domain=https://${domain}&sz=32`;
+      promises.push(
+        this.extractColorFromImage(googleUrl).then(color => {
+          if (color) this.colors[domain] = color;
+        })
+      );
+    }
+    await Promise.all(promises);
+    this.saveColors();
   }
 
   // Load colors from storage

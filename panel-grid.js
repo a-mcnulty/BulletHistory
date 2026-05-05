@@ -42,7 +42,9 @@ BulletHistory.prototype.renderDateHeader = function() {
       const dayStartMs = date.getTime();
       const dayEndMs = dayStartMs + 24 * 60 * 60 * 1000;
       const x1 = this.timeToX(dayStartMs) + 8;
-      const dayWidth = this.timeToX(dayEndMs) - this.timeToX(dayStartMs);
+      const dayWidthFull = this.timeToX(dayEndMs) - this.timeToX(dayStartMs);
+      const cellWidth = Math.max(1, dayWidthFull - 3);
+      const dayWidth = cellWidth;
 
       const monthName = date.toLocaleString('en-US', { month: 'short' });
       const year = date.getFullYear();
@@ -303,6 +305,24 @@ BulletHistory.prototype.renderVirtualRows = function(startRow, endRow, viewStart
     this.hoveredElements.clear();
 
     const totalWidth = this.getTimelineWidth() + 16;
+    const pxPerDay = this.pixelsPerHour * 24;
+
+    // Pre-compute maxCount for visible domains
+    this.maxCountCache.clear();
+    for (let rowIndex = startRow; rowIndex < endRow; rowIndex++) {
+      const domain = this.sortedDomains[rowIndex];
+      if (!domain || domain.trim().length === 0 || this.maxCountCache.has(domain)) continue;
+      let maxCount = 0;
+      if (this.historyData[domain]) {
+        for (const dateStr of Object.keys(this.historyData[domain].days)) {
+          const count = this.getUniqueUrlCountForCell(domain, dateStr, false);
+          if (count > maxCount) maxCount = count;
+        }
+      }
+      this.maxCountCache.set(domain, maxCount || 1);
+    }
+
+    const todayStr = this.formatDate(new Date());
 
     // Render visible rows
     for (let rowIndex = startRow; rowIndex < endRow; rowIndex++) {
@@ -362,7 +382,51 @@ BulletHistory.prototype.renderVirtualRows = function(startRow, endRow, viewStart
       tldRow.appendChild(deleteBtn);
       tldColumn.appendChild(tldRow);
 
-      // Line row — container for line segments
+      // Cell row — grid cells behind the lines
+      const maxCount = this.maxCountCache.get(domain) || 1;
+      const baseColor = this.colors[domain] || 'hsl(200, 50%, 70%)';
+      const cellRow = document.createElement('div');
+      cellRow.className = 'cell-row';
+      cellRow.dataset.rowIndex = rowIndex;
+      cellRow.style.position = 'absolute';
+      cellRow.style.top = `${rowIndex * this.rowHeight + 8}px`;
+      cellRow.style.left = '0';
+      cellRow.style.width = `${totalWidth}px`;
+      cellRow.style.height = `${this.rowHeight}px`;
+
+      for (const dateStr of this.dates) {
+        const dayStartMs = new Date(dateStr + 'T00:00:00').getTime();
+        const dayEndMs = dayStartMs + 24 * 60 * 60 * 1000;
+        if (dayEndMs < viewStartMs || dayStartMs > viewEndMs) continue;
+
+        const x1 = this.timeToX(dayStartMs) + 8;
+        const cellWidth = Math.max(1, pxPerDay - 3);
+        const isToday = dateStr === todayStr;
+        const count = this.getUniqueUrlCountForCell(domain, dateStr, false);
+
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.dataset.domain = domain;
+        cell.dataset.date = dateStr;
+        cell.dataset.rowIndex = rowIndex;
+        cell.style.left = `${x1}px`;
+        cell.style.width = `${cellWidth}px`;
+
+        if (count > 0) {
+          cell.style.backgroundColor = this.getGitHubStyleColor(count, maxCount, baseColor);
+          cell.dataset.count = count;
+        } else {
+          cell.classList.add('empty');
+          cell.dataset.count = 0;
+        }
+
+        if (isToday) cell.classList.add('col-today');
+
+        cellRow.appendChild(cell);
+      }
+      cellGrid.appendChild(cellRow);
+
+      // Line row — container for line segments, rendered on top of cells
       const lineRow = document.createElement('div');
       lineRow.className = 'cell-row line-row';
       lineRow.dataset.rowIndex = rowIndex;
@@ -375,9 +439,6 @@ BulletHistory.prototype.renderVirtualRows = function(startRow, endRow, viewStart
 
       // Get pre-computed segments for this domain
       const segments = this.domainSegmentsCache?.get(domain) || [];
-      const baseColor = this.colors[domain] || 'hsl(200, 50%, 70%)';
-
-      // Parse HSL for line color
       const hslMatch = baseColor.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/);
       const hue = hslMatch ? hslMatch[1] : '200';
 
@@ -418,6 +479,7 @@ BulletHistory.prototype.renderVirtualRows = function(startRow, endRow, viewStart
         line.style.top = `${(this.rowHeight - thickness) / 2}px`;
         line.style.background = `linear-gradient(to bottom, ${stops.join(', ')})`;
         line.style.borderRadius = '1.5px';
+        line.style.boxShadow = `0 0 0 0.5px hsl(${hue}, 70%, 55%)`;
 
         lineRow.appendChild(line);
       }
@@ -501,11 +563,21 @@ BulletHistory.prototype.setupTooltips = function() {
         tooltip.style.left = `${rect.left + rect.width / 2}px`;
         tooltip.style.top = `${rect.top - 30}px`;
         tooltip.style.transform = 'translateX(-50%)';
+      } else if (e.target.classList.contains('cell') && !e.target.classList.contains('empty')) {
+        const count = parseInt(e.target.dataset.count) || 0;
+        const domain = e.target.dataset.domain;
+        const date = e.target.dataset.date;
+        tooltip.textContent = `${domain} — ${count} tab${count !== 1 ? 's' : ''} on ${date}`;
+        tooltip.classList.add('visible');
+        const rect = e.target.getBoundingClientRect();
+        tooltip.style.left = `${rect.left + rect.width / 2}px`;
+        tooltip.style.top = `${rect.top - 30}px`;
+        tooltip.style.transform = 'translateX(-50%)';
       }
     });
 
     cellGrid.addEventListener('mouseout', (e) => {
-      if (e.target.classList.contains('timeline-line')) {
+      if (e.target.classList.contains('timeline-line') || e.target.classList.contains('cell')) {
         tooltip.classList.remove('visible');
       }
     });
@@ -570,32 +642,37 @@ BulletHistory.prototype.setupRowHover = function() {
       }
     });
 
-    // Hover over timeline line or line-row — highlight corresponding TLD row
+    // Hover over cell-row or line-row — highlight corresponding TLD row
     cellGrid.addEventListener('mouseover', (e) => {
-      const lineRow = e.target.closest('.line-row');
-      if (lineRow) {
-        const rowIndex = lineRow.dataset.rowIndex;
+      const row = e.target.closest('.cell-row');
+      if (row) {
+        const rowIndex = row.dataset.rowIndex;
         const tldRow = tldColumn.querySelector(`.tld-row[data-row-index="${rowIndex}"]`);
         if (tldRow) {
           tldRow.classList.add('row-hover');
           this.hoveredElements.add(tldRow);
         }
-        lineRow.classList.add('row-hover');
-        this.hoveredElements.add(lineRow);
+        // Highlight all cell-rows for this index (both cell row and line row)
+        cellGrid.querySelectorAll(`.cell-row[data-row-index="${rowIndex}"]`).forEach(r => {
+          r.classList.add('row-hover');
+          this.hoveredElements.add(r);
+        });
       }
     });
 
     cellGrid.addEventListener('mouseout', (e) => {
-      const lineRow = e.target.closest('.line-row');
-      if (lineRow) {
-        const rowIndex = lineRow.dataset.rowIndex;
+      const row = e.target.closest('.cell-row');
+      if (row) {
+        const rowIndex = row.dataset.rowIndex;
         const tldRow = tldColumn.querySelector(`.tld-row[data-row-index="${rowIndex}"]`);
         if (tldRow) {
           tldRow.classList.remove('row-hover');
           this.hoveredElements.delete(tldRow);
         }
-        lineRow.classList.remove('row-hover');
-        this.hoveredElements.delete(lineRow);
+        cellGrid.querySelectorAll(`.cell-row[data-row-index="${rowIndex}"]`).forEach(r => {
+          r.classList.remove('row-hover');
+          this.hoveredElements.delete(r);
+        });
       }
     });
 };
@@ -627,8 +704,18 @@ BulletHistory.prototype.setupCellClick = function() {
     const expandedView = document.getElementById('expandedView');
     const closeBtn = document.getElementById('closeExpanded');
 
-    // Click on timeline line or line-row — show domain view
     cellGrid.addEventListener('click', (e) => {
+      // Click on a grid cell — show expanded view for that domain+date
+      if (e.target.classList.contains('cell') && !e.target.classList.contains('empty')) {
+        const domain = e.target.dataset.domain;
+        const date = e.target.dataset.date;
+        if (domain && date) {
+          const count = parseInt(e.target.dataset.count) || 0;
+          this.showExpandedView(domain, date, count);
+          return;
+        }
+      }
+      // Click on timeline line or line-row — show domain view
       const lineRow = e.target.closest('.line-row');
       if (lineRow) {
         const domain = lineRow.dataset.domain;
