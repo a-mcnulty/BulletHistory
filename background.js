@@ -55,6 +55,109 @@ const initPromise = new Promise(resolve => { initPromiseResolve = resolve; });
 const pendingTimeUpdates = {};
 let pendingUrlHashes = {}; // New URL hash mappings to add
 
+// ===== TAB SESSION TRACKING =====
+// Records continuous tab sessions: {domain, tabId, openedAt, closedAt}
+// Stored per date in chrome.storage.local as tabSessions[dateStr] = [...]
+// In-memory buffer flushed on tab close and periodically via alarm
+const tabSessionsInMemory = {}; // { tabId: { domain, openedAt } }
+let pendingSessionWrites = {}; // { dateStr: [session, ...] }
+let sessionWriteTimer = null;
+const SESSION_WRITE_DELAY = 5000;
+
+function getDateStrFromTimestamp(ts) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function extractDomainFromUrl(url) {
+  try {
+    const hostname = new URL(url).hostname;
+    return hostname.replace(/^www\./, '');
+  } catch { return null; }
+}
+
+function startTabSession(tabId, url) {
+  const domain = extractDomainFromUrl(url);
+  if (!domain) return;
+  tabSessionsInMemory[tabId] = { domain, openedAt: Date.now() };
+}
+
+function endTabSession(tabId, closedAt) {
+  const session = tabSessionsInMemory[tabId];
+  if (!session) return;
+  delete tabSessionsInMemory[tabId];
+
+  const now = closedAt || Date.now();
+  const dateStr = getDateStrFromTimestamp(session.openedAt);
+
+  if (!pendingSessionWrites[dateStr]) pendingSessionWrites[dateStr] = [];
+  pendingSessionWrites[dateStr].push({
+    domain: session.domain,
+    tabId,
+    openedAt: session.openedAt,
+    closedAt: now
+  });
+
+  // If session spans midnight, also write to the next day(s)
+  const endDateStr = getDateStrFromTimestamp(now);
+  if (endDateStr !== dateStr) {
+    if (!pendingSessionWrites[endDateStr]) pendingSessionWrites[endDateStr] = [];
+    pendingSessionWrites[endDateStr].push({
+      domain: session.domain,
+      tabId,
+      openedAt: session.openedAt,
+      closedAt: now
+    });
+  }
+}
+
+function updateTabSessionUrl(tabId, newUrl) {
+  const existing = tabSessionsInMemory[tabId];
+  const newDomain = extractDomainFromUrl(newUrl);
+  if (!newDomain) return;
+  if (existing && existing.domain !== newDomain) {
+    endTabSession(tabId);
+    tabSessionsInMemory[tabId] = { domain: newDomain, openedAt: Date.now() };
+  } else if (!existing) {
+    tabSessionsInMemory[tabId] = { domain: newDomain, openedAt: Date.now() };
+  }
+}
+
+function scheduleSessionWrite() {
+  if (sessionWriteTimer) return;
+  sessionWriteTimer = setTimeout(async () => {
+    sessionWriteTimer = null;
+    await flushTabSessions();
+  }, SESSION_WRITE_DELAY);
+}
+
+async function flushTabSessions() {
+  const writes = pendingSessionWrites;
+  const dateKeys = Object.keys(writes);
+  if (dateKeys.length === 0) return;
+  pendingSessionWrites = {};
+
+  try {
+    const storageKeys = dateKeys.map(d => `tabSessions_${d}`);
+    const result = await chrome.storage.local.get(storageKeys);
+
+    const toSet = {};
+    for (const dateStr of dateKeys) {
+      const key = `tabSessions_${dateStr}`;
+      const existing = result[key] || [];
+      toSet[key] = existing.concat(writes[dateStr]);
+    }
+    await chrome.storage.local.set(toSet);
+  } catch (e) {
+    console.warn('Failed to flush tab sessions:', e);
+    // Re-queue failed writes
+    for (const dateStr of dateKeys) {
+      if (!pendingSessionWrites[dateStr]) pendingSessionWrites[dateStr] = [];
+      pendingSessionWrites[dateStr] = writes[dateStr].concat(pendingSessionWrites[dateStr]);
+    }
+  }
+}
+
 // Sleep detection: track last alarm time to detect system sleep
 let lastAlarmTime = Date.now();
 const MAX_EXPECTED_ALARM_GAP_MS = 300000; // 5 minutes (alarm is every 60s, but Chrome MV3 can delay significantly)
@@ -221,6 +324,7 @@ async function finalizeAllAndFlush() {
   // Persist alarm time for SW restart recovery, then flush
   lastAlarmTime = now;
   await flushTimeData();
+  await flushTabSessions();
   await chrome.storage.local.set({ lastAlarmTime: now });
 }
 
@@ -288,6 +392,10 @@ chrome.tabs.onCreated.addListener(async (tab) => {
       await cacheFavicon(tab.url, tab.favIconUrl);
     }
 
+    // Start tab session tracking
+    startTabSession(tab.id, tab.url);
+    scheduleSessionWrite();
+
     // Update in-memory storage (debounced write to disk)
     openTabsInMemory[tab.id] = tabInfo;
     scheduleOpenTabsWrite();
@@ -345,6 +453,12 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       }
     }
 
+    // Update tab session if domain changed
+    if (changeInfo.url) {
+      updateTabSessionUrl(tabId, tab.url);
+      scheduleSessionWrite();
+    }
+
     // Update in-memory storage (debounced write to disk)
     openTabsInMemory[tabId] = tabInfo;
     scheduleOpenTabsWrite();
@@ -376,13 +490,21 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     return;
   }
 
+  // End tab session and flush immediately on close
+  endTabSession(tabId);
+  await flushTabSessions();
+
   // Clean up from in-memory storage
   activeTabs.delete(tabId);
   delete openTabsInMemory[tabId];
 
-  // Don't track when whole window is closing
+  // Don't track closed tabs when whole window is closing
   if (removeInfo.isWindowClosing) {
-    // Still flush openTabs to persist the removal
+    // End sessions for all tabs in closing window
+    for (const [tid] of activeTabs) {
+      endTabSession(tid);
+    }
+    await flushTabSessions();
     await flushOpenTabs();
     return;
   }
@@ -576,6 +698,17 @@ chrome.storage.local.get(['openTabs', 'lastAlarmTime'], (result) => {
         activeTabs.set(tab.id, tabInfo);
         openTabsInMemory[tab.id] = tabInfo;
 
+        // Start session tracking for all open tabs
+        if (tab.url && !tabSessionsInMemory[tab.id]) {
+          const domain = extractDomainFromUrl(tab.url);
+          if (domain) {
+            tabSessionsInMemory[tab.id] = {
+              domain,
+              openedAt: storedTabs[tab.id]?.openedAt || Date.now()
+            };
+          }
+        }
+
         // Track the active tab
         if (tab.active) {
           activeTab = tab;
@@ -672,6 +805,23 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
 // Handle messages from panel
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'getLiveSessions') {
+    // Return currently open tab sessions (not yet flushed to storage)
+    const liveSessions = {};
+    for (const [tabId, session] of Object.entries(tabSessionsInMemory)) {
+      const dateStr = getDateStrFromTimestamp(session.openedAt);
+      if (!liveSessions[dateStr]) liveSessions[dateStr] = [];
+      liveSessions[dateStr].push({
+        domain: session.domain,
+        tabId: parseInt(tabId),
+        openedAt: session.openedAt,
+        closedAt: null // Still open
+      });
+    }
+    sendResponse(liveSessions);
+    return false;
+  }
+
   if (message.type === 'saveCurrentTimeData') {
     // Finalize and save all current time tracking data
     (async () => {

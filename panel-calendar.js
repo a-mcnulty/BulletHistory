@@ -366,14 +366,7 @@ BulletHistory.prototype.renderCalendarList = function() {
         this.updateVirtualGrid(true);
 
         // Refresh expanded view if open
-        if (this.expandedViewType === 'cell' && this.selectedCell) {
-          // Cell view doesn't show calendar events in domain-hour view
-          // Only refresh if in day view mode
-          if (this.viewMode === 'day') {
-            const date = this.selectedCell.dataset.date;
-            this.renderCalendarEventsForDate(date);
-          }
-        } else if (this.expandedViewType === 'day' && this.currentDate) {
+        if (this.expandedViewType === 'day' && this.currentDate) {
           this.renderCalendarEventsForDate(this.currentDate);
         } else if (this.expandedViewType === 'hour' && this.currentHour) {
           this.renderCalendarEventsForHour(this.currentHour);
@@ -549,13 +542,7 @@ BulletHistory.prototype.refreshCalendarUI = async function() {
     this.renderDateHeader();
 
     // Refresh expanded view if it's showing calendar events
-    if (this.expandedViewType === 'cell' && this.selectedCell) {
-      // Cell view only shows calendar events in day view mode
-      if (this.viewMode === 'day') {
-        const date = this.selectedCell.dataset.date;
-        this.renderCalendarEventsForDate(date);
-      }
-    } else if (this.expandedViewType === 'day' && this.currentDate) {
+    if (this.expandedViewType === 'day' && this.currentDate) {
       this.renderCalendarEventsForDate(this.currentDate);
     } else if (this.expandedViewType === 'hour' && this.currentHour) {
       this.renderCalendarEventsForHour(this.currentHour);
@@ -718,15 +705,9 @@ BulletHistory.prototype.renderCalendarEventDots = function(eventColumn, enabledE
       dot.style.gridRow = `${actualRow}`;
       dot.style.gridColumn = `${col}`;
 
-      // Add click handler to show event details
       dot.addEventListener('click', (e) => {
         e.stopPropagation();
-        // Find the corresponding day cell and trigger its click
-        const colIndex = Array.from(eventColumn.parentElement.children).indexOf(eventColumn);
-        const dayCell = document.querySelector(`.day-cell[data-col-index="${colIndex}"]`);
-        if (dayCell) {
-          dayCell.click();
-        }
+        this.showDayExpandedView(dateStr);
       });
 
       eventColumn.appendChild(dot);

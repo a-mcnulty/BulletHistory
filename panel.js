@@ -16,10 +16,16 @@ class BulletHistory {
     this.openTabGroupByUrl = {}; // Map of URL to groupId for currently open tabs
     this.tabGroupsById = {}; // Map of groupId to { title, color }
 
-    // View mode: 'day' (default) or 'hour' - will be loaded from storage in init()
-    this.viewMode = 'day';
     this.hours = []; // Array of hour strings like ['2025-12-01T00', '2025-12-01T01', ...]
     this.hourlyData = {}; // { domain: { 'YYYY-MM-DDTHH': { count, urls } } }
+
+    // Timeline zoom settings
+    this.zoomLevel = 50; // 0 = week, 100 = hourly (slider value)
+    this.pixelsPerHour = 3; // Computed from zoomLevel
+    this.timelineStartMs = 0; // Start of timeline in ms
+    this.timelineEndMs = 0; // End of timeline in ms
+    this.tabSessions = {}; // { dateStr: [{domain, tabId, openedAt, closedAt}] }
+    this.liveSessions = {}; // Currently open sessions from background
 
     // Virtualization settings
     this.rowHeight = 21; // 18px cell + 3px gap
@@ -58,11 +64,12 @@ class BulletHistory {
   }
 
   async init() {
-    // Load saved view mode from localStorage
-    const savedViewMode = localStorage.getItem('bulletHistoryViewMode');
-    if (savedViewMode === 'hour' || savedViewMode === 'day') {
-      this.viewMode = savedViewMode;
+    // Load saved zoom level
+    const savedZoom = localStorage.getItem('bulletHistoryZoomLevel');
+    if (savedZoom !== null) {
+      this.zoomLevel = parseInt(savedZoom) || 50;
     }
+    this.updatePixelsPerHour();
 
     // Initialize state before loading data
     this.selectedCell = null;
@@ -90,16 +97,11 @@ class BulletHistory {
     await this.fetchHistory();
     await this.loadOpenTabsData();
     await this.loadUrlTimeDataForCells();
+    await this.loadTabSessions();
 
-    // Generate dates and hours based on view mode
     this.generateDates();
-    if (this.viewMode === 'hour') {
-      this.generateHours();
-      await this.organizeHistoryByHour();
-      this.sortedDomains = this.sortDomainsForHourView();
-    } else {
-      this.sortedDomains = this.getSortedDomains();
-    }
+    this.computeTimeline();
+    this.sortedDomains = this.getSortedDomains();
     this.renderDateHeader();
     this.setupVirtualGrid();
     this.setupScrollSync();
@@ -115,22 +117,11 @@ class BulletHistory {
     this.setupResizeHandle();
     this.setupDateChangeDetection();
     this.setupExpandedViewZoomHandler();
+    this.setupZoomSlider();
 
     // Initialize calendar integration
     await this.initializeCalendar();
     this.setupCalendarUI();
-
-    // Initialize view toggle (hour/day)
-    this.setupViewToggle();
-
-    // Update toggle button state to reflect saved view mode
-    document.querySelectorAll('.view-toggle-btn').forEach(btn => {
-      if (btn.dataset.view === this.viewMode) {
-        btn.classList.add('active');
-      } else {
-        btn.classList.remove('active');
-      }
-    });
 
     // Re-render date header to show calendar events now that data is loaded
     this.renderDateHeader();
@@ -210,79 +201,39 @@ class BulletHistory {
     // Don't show expanded view on load
     // User can open it by clicking a cell or bottom menu buttons
 
-    // Scroll to appropriate position based on view mode
-    if (this.viewMode === 'hour') {
-      this.scrollToCurrentHour();
-    } else {
-      this.scrollToToday();
-    }
+    this.scrollToToday();
   }
 
-  // Detect when the date changes and update the header
   setupDateChangeDetection() {
-    // Store the current date and hour
     let lastDate = this.formatDate(new Date());
-    let lastHour = DateUtils.getCurrentHourISO();
 
-    const checkForChanges = () => {
+    const checkForDateChange = () => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const currentDate = this.formatDate(today);
-      const currentHour = DateUtils.getCurrentHourISO();
-
-      const dateChanged = currentDate !== lastDate;
-      const hourChanged = currentHour !== lastHour;
-
-      if (dateChanged) lastDate = currentDate;
-      if (hourChanged) lastHour = currentHour;
-
-      return { dateChanged, hourChanged };
+      if (currentDate !== lastDate) {
+        lastDate = currentDate;
+        return true;
+      }
+      return false;
     };
 
-    // Update when the page becomes visible again
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
-        const { dateChanged, hourChanged } = checkForChanges();
-
-        if (dateChanged || (hourChanged && this.viewMode === 'hour')) {
+        if (checkForDateChange()) {
           this.renderDateHeader();
           this.updateVirtualGrid();
         }
-
-        // Scroll to appropriate position
-        if (this.viewMode === 'hour') {
-          this.scrollToCurrentHour();
-        } else {
-          this.scrollToToday();
-        }
+        this.scrollToToday();
       }
     });
 
-    // Periodically check for hour changes while panel is open (hour view)
-    setInterval(() => {
-      if (this.viewMode !== 'hour') return;
-      const { hourChanged } = checkForChanges();
-      if (hourChanged) {
-        this.renderDateHeader();
-        this.updateVirtualGrid();
-      }
-    }, 30000); // Check every 30 seconds
-
-    // Also check on focus (when side panel is opened)
     window.addEventListener('focus', () => {
-      const { dateChanged, hourChanged } = checkForChanges();
-
-      if (dateChanged || (hourChanged && this.viewMode === 'hour')) {
+      if (checkForDateChange()) {
         this.renderDateHeader();
         this.updateVirtualGrid();
       }
-
-      // Scroll to appropriate position
-      if (this.viewMode === 'hour') {
-        this.scrollToCurrentHour();
-      } else {
-        this.scrollToToday();
-      }
+      this.scrollToToday();
     });
   }
 
@@ -757,12 +708,7 @@ class BulletHistory {
       const wasOpen = expandedView.style.display === 'block';
       const viewType = this.expandedViewType;
 
-      // Re-sort domains based on current view mode
-      if (this.viewMode === 'hour') {
-        this.sortedDomains = this.sortDomainsForHourView();
-      } else {
-        this.sortedDomains = this.getSortedDomains();
-      }
+      this.sortedDomains = this.getSortedDomains();
 
       // Reset virtual state to force re-render
       this.virtualState = {
@@ -828,12 +774,7 @@ class BulletHistory {
 
   // Refresh grid with current sort and filter
   refreshGrid() {
-    // Re-sort/filter domains based on current view mode
-    if (this.viewMode === 'hour') {
-      this.sortedDomains = this.sortDomainsForHourView();
-    } else {
-      this.sortedDomains = this.getSortedDomains();
-    }
+    this.sortedDomains = this.getSortedDomains();
 
     // Close any expanded view since row indices will change
     this.closeExpandedView();
@@ -924,12 +865,7 @@ class BulletHistory {
           this.saveColors();
         }
 
-        // Update sorted domains (use appropriate method based on view mode)
-        if (this.viewMode === 'hour') {
-          this.sortedDomains = this.sortDomainsForHourView();
-        } else {
-          this.sortedDomains = this.getSortedDomains();
-        }
+        this.sortedDomains = this.getSortedDomains();
       }
 
       // Initialize day if new
@@ -989,26 +925,6 @@ class BulletHistory {
       // Update expanded view based on what's currently open
       if (this.expandedViewType === 'domain' && this.currentDomain === domain) {
         this.showDomainView(domain);
-      } else if (this.expandedViewType === 'cell' && this.selectedCell) {
-        const cellDomain = this.selectedCell.dataset.domain;
-        const cellDate = this.selectedCell.dataset.date;
-
-        if (this.viewMode === 'hour') {
-          // In hour view, cellDate is hourStr
-          const visitHourStr = `${visitDate}T${String(new Date(historyItem.lastVisitTime).getHours()).padStart(2, '0')}`;
-          if (cellDomain === domain && cellDate === visitHourStr) {
-            // Update the domain-hour view
-            const hourData = this.hourlyData[domain][visitHourStr];
-            this.showDomainHourView(domain, visitHourStr, hourData.count);
-          }
-        } else {
-          // In day view
-          if (cellDomain === domain && cellDate === visitDate) {
-            // Update the cell view
-            const dayData = this.historyData[domain].days[visitDate];
-            this.showExpandedView(domain, visitDate, dayData.count);
-          }
-        }
       } else if (this.expandedViewType === 'day' && this.currentDate) {
         // Refresh day view if the new visit is on the current date
         if (this.currentDate === visitDate) {
@@ -1089,23 +1005,15 @@ class BulletHistory {
   scrollToToday() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const todayStr = this.formatDate(today);
-    const todayIndex = this.dates.indexOf(todayStr);
+    const cellGridWrapper = document.getElementById('cellGridWrapper');
+    const dateHeader = document.getElementById('dateHeader');
 
-    if (todayIndex !== -1) {
-      const cellGridWrapper = document.getElementById('cellGridWrapper');
-      const dateHeader = document.getElementById('dateHeader');
+    // Scroll to show "now" near the right edge of the viewport
+    const nowX = this.timeToX(Date.now()) + 8;
+    const scrollLeft = Math.max(0, nowX - cellGridWrapper.clientWidth + 50);
 
-      // Calculate scroll position to show tomorrow (todayIndex + 1) at the right edge
-      // This means today is visible, plus one day into the future
-      const scrollLeft = (todayIndex + 2) * this.colWidth - cellGridWrapper.clientWidth;
-
-      // Ensure we don't scroll past the end or before the beginning
-      const maxScroll = Math.max(0, scrollLeft);
-
-      cellGridWrapper.scrollLeft = maxScroll;
-      dateHeader.scrollLeft = maxScroll;
-    }
+    cellGridWrapper.scrollLeft = scrollLeft;
+    dateHeader.scrollLeft = scrollLeft;
   }
 
   scrollToCurrentHour() {
@@ -1147,21 +1055,6 @@ class BulletHistory {
       cellGridWrapper.scrollLeft = maxScroll;
       dateHeader.scrollLeft = maxScroll;
     }
-  }
-
-  async switchToHourViewForDate(dateStr) {
-    if (this.viewMode !== 'hour') {
-      // Switch to hour view first
-      await this.switchView('hour');
-    }
-
-    // Use requestAnimationFrame to ensure DOM is updated before scrolling
-    requestAnimationFrame(() => {
-      this.scrollToDateInHourView(dateStr);
-
-      // Also show expanded view with all URLs from this day
-      this.showDayExpandedView(dateStr);
-    });
   }
 
   setupZoomControls() {
@@ -1306,64 +1199,266 @@ class BulletHistory {
   }
 
   setupViewToggle() {
-    const viewToggleBtns = document.querySelectorAll('.view-toggle-btn');
+    // Legacy — replaced by zoom slider, kept as no-op for compatibility
+  }
 
-    viewToggleBtns.forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const view = btn.dataset.view;
-        this.switchView(view);
+  // Compute pixelsPerHour from zoom level (0-100)
+  // 0 = week view (~0.125 px/hr = 21px/week), 100 = hourly (~21 px/hr)
+  updatePixelsPerHour() {
+    // Exponential scale: week (0) -> hourly (100)
+    // At 0: ~0.125 px/hr (7 days fit in ~21px * dates.length)
+    // At 100: ~21 px/hr (each hour gets a full column width)
+    const minPxPerHr = 0.125; // week scale
+    const maxPxPerHr = 21;    // hourly scale
+    const t = this.zoomLevel / 100;
+    this.pixelsPerHour = minPxPerHr * Math.pow(maxPxPerHr / minPxPerHr, t);
+  }
+
+  // Compute timeline start/end from history data
+  computeTimeline() {
+    let earliest = Date.now();
+    let latest = Date.now();
+
+    // From history dates
+    if (this.dates && this.dates.length > 0) {
+      const first = new Date(this.dates[0] + 'T00:00:00').getTime();
+      const last = new Date(this.dates[this.dates.length - 1] + 'T23:59:59').getTime();
+      if (first < earliest) earliest = first;
+      if (last > latest) latest = last;
+    }
+
+    // Extend to end of today + 1 hour buffer
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+    if (endOfToday.getTime() > latest) latest = endOfToday.getTime();
+
+    this.timelineStartMs = earliest;
+    this.timelineEndMs = latest;
+  }
+
+  // Get total timeline width in pixels at current zoom
+  getTimelineWidth() {
+    const hours = (this.timelineEndMs - this.timelineStartMs) / (1000 * 60 * 60);
+    return Math.ceil(hours * this.pixelsPerHour);
+  }
+
+  // Convert timestamp to x pixel position
+  timeToX(timestampMs) {
+    const hours = (timestampMs - this.timelineStartMs) / (1000 * 60 * 60);
+    return hours * this.pixelsPerHour;
+  }
+
+  // Convert x pixel position to timestamp
+  xToTime(x) {
+    const hours = x / this.pixelsPerHour;
+    return this.timelineStartMs + hours * 1000 * 60 * 60;
+  }
+
+  setupZoomSlider() {
+    const slider = document.getElementById('zoomSlider');
+    if (!slider) return;
+    slider.value = this.zoomLevel;
+
+    slider.addEventListener('input', () => {
+      const oldPxPerHr = this.pixelsPerHour;
+      this.zoomLevel = parseInt(slider.value);
+      this.updatePixelsPerHour();
+      localStorage.setItem('bulletHistoryZoomLevel', this.zoomLevel);
+
+      // Maintain scroll position (keep center of viewport at same time)
+      const cellGridWrapper = document.getElementById('cellGridWrapper');
+      const centerX = cellGridWrapper.scrollLeft + cellGridWrapper.clientWidth / 2;
+      const centerTime = this.xToTime(centerX / oldPxPerHr * oldPxPerHr);
+      // Actually just use the old center position
+      const ratio = this.pixelsPerHour / oldPxPerHr;
+      const newScrollLeft = centerX * ratio - cellGridWrapper.clientWidth / 2;
+
+      this.renderDateHeader();
+      this.setupVirtualGrid();
+
+      requestAnimationFrame(() => {
+        cellGridWrapper.scrollLeft = Math.max(0, newScrollLeft);
+        this.updateVirtualGrid(true);
       });
     });
   }
 
-  async switchView(view) {
-    if (this.viewMode === view) return; // Already in this view
-
-    this.viewMode = view;
-
-    // Save view mode to localStorage
-    localStorage.setItem('bulletHistoryViewMode', view);
-
-    // Update button states
-    document.querySelectorAll('.view-toggle-btn').forEach(btn => {
-      if (btn.dataset.view === view) {
-        btn.classList.add('active');
-      } else {
-        btn.classList.remove('active');
+  // Load tab session data from storage
+  async loadTabSessions() {
+    try {
+      // Get all tabSessions_ keys
+      const allStorage = await chrome.storage.local.get(null);
+      this.tabSessions = {};
+      for (const key of Object.keys(allStorage)) {
+        if (key.startsWith('tabSessions_')) {
+          const dateStr = key.replace('tabSessions_', '');
+          this.tabSessions[dateStr] = allStorage[key];
+        }
       }
-    });
 
-    if (view === 'hour') {
-      // Switch to hour view - generate hours for entire range
-      this.generateHours();
-      await this.organizeHistoryByHour();
+      // Get live sessions from background
+      try {
+        this.liveSessions = await chrome.runtime.sendMessage({ type: 'getLiveSessions' });
+      } catch {
+        this.liveSessions = {};
+      }
+    } catch (e) {
+      console.warn('Failed to load tab sessions:', e);
+    }
+  }
 
-      // Update sorted domains list from hourly data
-      this.sortedDomains = this.sortDomainsForHourView();
-    } else {
-      // Switch back to day view - restore domains from historyData
-      this.sortedDomains = this.getSortedDomains();
+  // Get all sessions for a domain, merging stored + live
+  getSessionsForDomain(domain) {
+    const sessions = [];
+    // Stored sessions
+    for (const dateStr of Object.keys(this.tabSessions)) {
+      const daySessions = this.tabSessions[dateStr];
+      if (daySessions) {
+        for (const s of daySessions) {
+          if (s.domain === domain) sessions.push(s);
+        }
+      }
+    }
+    // Live sessions (currently open)
+    for (const dateStr of Object.keys(this.liveSessions || {})) {
+      const liveSessions = this.liveSessions[dateStr];
+      if (liveSessions) {
+        for (const s of liveSessions) {
+          if (s.domain === domain) {
+            sessions.push({ ...s, closedAt: Date.now() }); // Treat as open until now
+          }
+        }
+      }
+    }
+    return sessions;
+  }
+
+  // Build line segments for a domain from all available data sources
+  // Returns array of {startMs, endMs, concurrentTabs}
+  buildDomainLineSegments(domain) {
+    // Start with historical data (time tracking + visit timestamps)
+    const historicalSegments = this.buildFallbackLineSegments(domain);
+
+    // Layer on tab session data (precise open/close times)
+    const sessions = this.getSessionsForDomain(domain);
+    if (sessions.length === 0) return historicalSegments;
+
+    // Build session segments via sweep line
+    const events = [];
+    for (const s of sessions) {
+      const openAt = s.openedAt;
+      const closeAt = s.closedAt || Date.now();
+      events.push({ time: openAt, delta: 1 });
+      events.push({ time: closeAt, delta: -1 });
+    }
+    events.sort((a, b) => a.time - b.time || a.delta - b.delta);
+
+    const sessionSegments = [];
+    let concurrency = 0;
+    let segStart = 0;
+
+    for (const ev of events) {
+      if (concurrency > 0 && ev.time > segStart) {
+        sessionSegments.push({ startMs: segStart, endMs: ev.time, concurrentTabs: concurrency });
+      }
+      concurrency += ev.delta;
+      segStart = ev.time;
     }
 
-    // Re-render everything
-    this.renderDateHeader();
-    this.setupVirtualGrid();
-
-    // Use requestAnimationFrame to ensure DOM is updated before scrolling
-    requestAnimationFrame(() => {
-      const cellGridWrapper = document.getElementById('cellGridWrapper');
-      cellGridWrapper.scrollTop = 0;
-
-      // Scroll to appropriate position based on view mode
-      if (view === 'hour') {
-        this.scrollToCurrentHour();
-      } else {
-        this.scrollToToday();
+    // Merge session segments with historical: sessions take priority where they exist
+    // Build a set of hours covered by sessions to avoid double-drawing
+    const sessionCoveredHours = new Set();
+    for (const seg of sessionSegments) {
+      const startHour = Math.floor(seg.startMs / 3600000);
+      const endHour = Math.ceil(seg.endMs / 3600000);
+      for (let h = startHour; h < endHour; h++) {
+        sessionCoveredHours.add(h);
       }
+    }
 
-      // Force update after scroll
-      this.updateVirtualGrid(true);
+    // Keep historical segments that don't overlap with session data
+    const filtered = historicalSegments.filter(seg => {
+      const segHour = Math.floor(seg.startMs / 3600000);
+      return !sessionCoveredHours.has(segHour);
     });
+
+    // Combine and sort
+    const combined = [...filtered, ...sessionSegments];
+    combined.sort((a, b) => a.startMs - b.startMs);
+
+    // Merge adjacent segments with same concurrency
+    const merged = [];
+    for (const seg of combined) {
+      const last = merged[merged.length - 1];
+      if (last && last.concurrentTabs === seg.concurrentTabs && last.endMs >= seg.startMs) {
+        last.endMs = Math.max(last.endMs, seg.endMs);
+      } else {
+        merged.push({ ...seg });
+      }
+    }
+    return merged;
+  }
+
+  // Build line segments from historical data (time tracking + visit timestamps)
+  buildFallbackLineSegments(domain) {
+    const segments = [];
+    const domainData = this.historyData[domain];
+    if (!domainData) return segments;
+
+    const timeData = this.urlTimeDataByDomain?.[domain];
+
+    for (const dateStr of Object.keys(domainData.days)) {
+      const dayData = domainData.days[dateStr];
+      if (!dayData || dayData.count === 0) continue;
+
+      const dayTimeData = timeData?.[dateStr];
+
+      if (dayTimeData && dayTimeData.hourToUrls && Object.keys(dayTimeData.hourToUrls).length > 0) {
+        // Best path: we know exactly which hours had activity and how many URLs
+        for (const [hour, urlSet] of Object.entries(dayTimeData.hourToUrls)) {
+          const h = parseInt(hour);
+          const startMs = new Date(dateStr + 'T00:00:00').getTime() + h * 3600000;
+          const endMs = startMs + 3600000;
+          segments.push({ startMs, endMs, concurrentTabs: urlSet.size });
+        }
+      } else if (dayData.urls && dayData.urls.length > 0) {
+        // Fallback: use individual visit timestamps to place short segments
+        const visitsByHour = {};
+        for (const urlEntry of dayData.urls) {
+          if (!urlEntry.lastVisit) continue;
+          const visitDate = new Date(urlEntry.lastVisit);
+          const h = visitDate.getHours();
+          if (!visitsByHour[h]) visitsByHour[h] = 0;
+          visitsByHour[h]++;
+        }
+
+        if (Object.keys(visitsByHour).length > 0) {
+          for (const [hour, count] of Object.entries(visitsByHour)) {
+            const h = parseInt(hour);
+            const startMs = new Date(dateStr + 'T00:00:00').getTime() + h * 3600000;
+            const endMs = startMs + 3600000;
+            segments.push({ startMs, endMs, concurrentTabs: Math.min(count, 5) });
+          }
+        } else {
+          // Last resort: we have visit count but no timestamps — place a dot at noon
+          const noon = new Date(dateStr + 'T12:00:00').getTime();
+          segments.push({ startMs: noon, endMs: noon + 3600000, concurrentTabs: 1 });
+        }
+      }
+    }
+
+    // Merge adjacent same-concurrency segments
+    segments.sort((a, b) => a.startMs - b.startMs);
+    const merged = [];
+    for (const seg of segments) {
+      const last = merged[merged.length - 1];
+      if (last && last.concurrentTabs === seg.concurrentTabs && last.endMs >= seg.startMs) {
+        last.endMs = Math.max(last.endMs, seg.endMs);
+      } else {
+        merged.push({ ...seg });
+      }
+    }
+    return merged;
   }
 
   async organizeHistoryByHour() {

@@ -2484,12 +2484,6 @@ BulletHistory.prototype.refreshExpandedView = function() {
 
     if (viewType === 'domain') {
       this.showDomainView(this.currentDomain);
-    } else if (viewType === 'cell') {
-      if (this.viewMode === 'hour') {
-        this.showDomainHourView(this.currentDomain, this.currentHour);
-      } else {
-        this.showExpandedView(this.currentDomain, this.currentDate);
-      }
     } else if (viewType === 'day') {
       this.showDayExpandedView(this.currentDate);
     } else if (viewType === 'hour') {
@@ -2764,55 +2758,16 @@ BulletHistory.prototype.deleteUrl = async function(url, domain, date) {
         await chrome.storage.local.set({ closedTabs: updatedClosedTabs });
       }
 
-      // Update local data based on view mode
-      if (this.viewMode === 'hour' && date.includes('T')) {
-        // In hour view, date is hourStr - update hourly data
-        if (this.hourlyData[domain] && this.hourlyData[domain][date]) {
-          const hourData = this.hourlyData[domain][date];
-          const urlIndex = hourData.urls.findIndex(u => u.url === url);
-
-          if (urlIndex !== -1) {
-            hourData.urls.splice(urlIndex, 1);
-            hourData.count--;
-
-            // If no more URLs for this hour, remove the hour
-            if (hourData.urls.length === 0) {
-              delete this.hourlyData[domain][date];
-            }
-
-            // If domain has no more hours, remove domain from hourly data
-            if (Object.keys(this.hourlyData[domain]).length === 0) {
-              delete this.hourlyData[domain];
-            }
-          }
-        }
-
-        // Also update daily data
-        const dayStr = date.split('T')[0];
-        const dayData = this.historyData[domain]?.days[dayStr];
-        if (dayData) {
-          const urlIndex = dayData.urls.findIndex(u => u.url === url);
-          if (urlIndex !== -1) {
-            dayData.urls.splice(urlIndex, 1);
-            dayData.count--;
-
-            if (dayData.urls.length === 0) {
-              delete this.historyData[domain].days[dayStr];
-            }
-          }
-        }
-      } else {
-        // In day view - update daily data only
-        const dayData = this.historyData[domain]?.days[date];
-        if (dayData) {
-          const urlIndex = dayData.urls.findIndex(u => u.url === url);
-          if (urlIndex !== -1) {
-            dayData.urls.splice(urlIndex, 1);
-            dayData.count--;
-
-            if (dayData.urls.length === 0) {
-              delete this.historyData[domain].days[date];
-            }
+      // Update local data — handle both hourStr (YYYY-MM-DDTHH) and dateStr (YYYY-MM-DD)
+      const dayStr = date.includes('T') ? date.split('T')[0] : date;
+      const dayData = this.historyData[domain]?.days[dayStr];
+      if (dayData) {
+        const urlIndex = dayData.urls.findIndex(u => u.url === url);
+        if (urlIndex !== -1) {
+          dayData.urls.splice(urlIndex, 1);
+          dayData.count--;
+          if (dayData.urls.length === 0) {
+            delete this.historyData[domain].days[dayStr];
           }
         }
       }
@@ -2820,12 +2775,7 @@ BulletHistory.prototype.deleteUrl = async function(url, domain, date) {
       // If domain has no more days, remove domain and close view
       if (this.historyData[domain] && Object.keys(this.historyData[domain].days).length === 0) {
         delete this.historyData[domain];
-        // Re-sort based on view mode
-        if (this.viewMode === 'hour') {
-          this.sortedDomains = this.sortDomainsForHourView();
-        } else {
-          this.sortedDomains = this.getSortedDomains();
-        }
+        this.sortedDomains = this.getSortedDomains();
         this.closeExpandedView();
 
         // Force complete re-render
@@ -2855,83 +2805,6 @@ BulletHistory.prototype.deleteUrl = async function(url, domain, date) {
           };
           this.setupVirtualGrid();
           this.updateVirtualGrid();
-        } else if (this.expandedViewType === 'cell') {
-          // Refresh cell view based on current view mode
-          if (this.viewMode === 'hour') {
-            // In hour view, date is actually hourStr
-            const newCount = this.hourlyData[domain]?.[date]?.count || 0;
-
-            // Don't close the view, just refresh it
-            this.showDomainHourView(domain, date, newCount);
-
-            // Directly update the cell element in the grid
-            const colIndex = this.hours.indexOf(date);
-            const rowIndex = this.sortedDomains.indexOf(domain);
-
-            if (colIndex !== -1 && rowIndex !== -1) {
-              const cellElement = document.querySelector(`.cell[data-row-index="${rowIndex}"][data-col-index="${colIndex}"]`);
-
-              if (cellElement) {
-                // Calculate maxCount for this domain (row-normalized)
-                let maxCount = 0;
-                if (this.hourlyData[domain]) {
-                  Object.values(this.hourlyData[domain]).forEach(hourData => {
-                    maxCount = Math.max(maxCount, hourData.count);
-                  });
-                }
-
-                // Update cell appearance
-                cellElement.dataset.count = newCount;
-
-                if (newCount > 0) {
-                  const baseColor = this.colors[domain];
-                  cellElement.style.backgroundColor = this.getGitHubStyleColor(newCount, maxCount, baseColor);
-                  cellElement.classList.remove('empty');
-                  cellElement.textContent = '';
-                } else {
-                  cellElement.style.backgroundColor = '';
-                  cellElement.classList.add('empty');
-                  cellElement.textContent = '';
-                }
-              }
-            }
-          } else {
-            // In day view
-            const newCount = this.historyData[domain]?.days[date]?.count || 0;
-
-            // Don't close the view, just refresh it
-            this.showExpandedView(domain, date, newCount);
-
-            // Directly update the cell element in the grid
-            const colIndex = this.dates.indexOf(date);
-            const rowIndex = this.sortedDomains.indexOf(domain);
-
-            if (colIndex !== -1 && rowIndex !== -1) {
-              const cellElement = document.querySelector(`.cell[data-row-index="${rowIndex}"][data-col-index="${colIndex}"]`);
-
-              if (cellElement) {
-                // Calculate maxCount for this domain (row-normalized)
-                let maxCount = 0;
-                Object.values(this.historyData[domain].days).forEach(day => {
-                  maxCount = Math.max(maxCount, day.count);
-                });
-
-                // Update cell appearance
-                cellElement.dataset.count = newCount;
-
-                if (newCount > 0) {
-                  const baseColor = this.colors[domain];
-                  cellElement.style.backgroundColor = this.getGitHubStyleColor(newCount, maxCount, baseColor);
-                  cellElement.classList.remove('empty');
-                  cellElement.textContent = '';
-                } else {
-                  cellElement.style.backgroundColor = '';
-                  cellElement.classList.add('empty');
-                  cellElement.textContent = '';
-                }
-              }
-            }
-          }
         } else if (this.expandedViewType === 'day') {
           // Refresh day view with updated data
           this.showDayExpandedView(this.currentDate);
@@ -3061,12 +2934,7 @@ BulletHistory.prototype.deleteDomain = async function(domain) {
             delete this.hourlyData[domain];
           }
 
-          // Re-sort based on view mode
-          if (this.viewMode === 'hour') {
-            this.sortedDomains = this.sortDomainsForHourView();
-          } else {
-            this.sortedDomains = this.getSortedDomains();
-          }
+          this.sortedDomains = this.getSortedDomains();
 
           // Close view and refresh grid
           this.closeExpandedView();

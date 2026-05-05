@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bullet History — Features</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0a;
+    color: #e0e0e0;
+    font-family: 'Inter', -apple-system, sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  header {
+    text-align: center;
+    padding: 60px 40px 40px;
+  }
+
+  header h1 {
+    font-size: 48px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -1px;
+    margin-bottom: 12px;
+  }
+
+  header p {
+    font-size: 18px;
+    color: #888;
+    font-weight: 300;
+    max-width: 600px;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+
+  .sections {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 20px 40px 80px;
+    display: flex;
+    flex-direction: column;
+    gap: 48px;
+  }
+
+  .section-title {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: #555;
+    margin-bottom: 16px;
+    padding-left: 4px;
+  }
+
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 12px;
+  }
+
+  .feature {
+    padding: 20px 24px;
+    border-radius: 12px;
+    border: 1px solid #1a1a1a;
+    background: #111;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    user-select: none;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .feature:hover {
+    border-color: #333;
+    background: #161616;
+  }
+
+  .feature.highlighted {
+    border-color: #4285f4;
+    background: #4285f411;
+    box-shadow: 0 0 30px #4285f415, inset 0 0 30px #4285f408;
+  }
+
+  .feature.highlighted .feature-name {
+    color: #4285f4;
+  }
+
+  .feature.dimmed {
+    opacity: 0.25;
+  }
+
+  .feature-text {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .feature-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: #fff;
+    transition: color 0.3s ease;
+  }
+
+  .feature-desc {
+    font-size: 13px;
+    color: #777;
+    line-height: 1.5;
+    font-weight: 400;
+  }
+
+  .feature.highlighted .feature-desc {
+    color: #aaa;
+  }
+
+  /* ===== EMBEDDED COMPONENT PREVIEWS ===== */
+  .component-preview {
+    background: #fafafa;
+    border-radius: 8px;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    font-size: 12px;
+    line-height: 1.4;
+    pointer-events: none;
+  }
+
+  /* --- Timeline rows --- */
+  .preview-timeline {
+    padding: 6px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .preview-tld-line {
+    display: flex;
+    align-items: center;
+    height: 18px;
+    gap: 6px;
+  }
+
+  .preview-tld-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 90px;
+    flex-shrink: 0;
+    font-size: 11px;
+    color: #333;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .preview-tld-label img {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    border-radius: 2px;
+  }
+
+  .preview-line-track {
+    flex: 1;
+    height: 18px;
+    position: relative;
+    background: #f0f0f0;
+    border-radius: 2px;
+  }
+
+  .preview-line-seg {
+    position: absolute;
+    border-radius: 99px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  /* --- URL item --- */
+  .preview-url-item {
+    display: flex;
+    padding: 6px 8px;
+    background: #fff;
+    border-bottom: 1px solid #f0f0f0;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .preview-url-left {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    color: #999;
+    flex-shrink: 0;
+    gap: 1px;
+    min-width: 28px;
+  }
+
+  .preview-url-count {
+    font-weight: 500;
+    font-size: 12px;
+  }
+
+  .preview-url-time {
+    font-size: 10px;
+    color: #7cb342;
+  }
+
+  .preview-url-time.open-time {
+    color: #ab7fdb;
+  }
+
+  .preview-url-right {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .preview-url-right img {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+
+  .preview-url-title {
+    color: #555;
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* --- Bottom menu --- */
+  .preview-bottom-menu {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    background: #fff;
+    border-top: 1px solid #ddd;
+    padding: 8px 12px;
+  }
+
+  .preview-menu-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    padding: 4px 8px;
+    font-size: 10px;
+    font-weight: 500;
+    color: #666;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  }
+
+  .preview-menu-btn.active {
+    font-weight: 600;
+    color: #333;
+    border-color: #bbb;
+  }
+
+  .preview-menu-btn.history { border-left: 2px solid #7986cb; }
+  .preview-menu-btn.history.active { background: #f5f6fb; }
+  .preview-menu-btn.bookmarks { border-left: 2px solid #f9ab00; }
+  .preview-menu-btn.bookmarks.active { background: #fef9ef; }
+  .preview-menu-btn.tabs { border-left: 2px solid #4db6ac; }
+  .preview-menu-btn.tabs.active { background: #f0faf9; }
+  .preview-menu-btn.closed { border-left: 2px solid #ef5350; }
+  .preview-menu-btn.closed.active { background: #fef5f5; }
+
+  /* --- Zoom slider --- */
+  .preview-zoom {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: #fafafa;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+  }
+
+  .preview-zoom-label {
+    font-size: 9px;
+    font-weight: 600;
+    color: #999;
+  }
+
+  .preview-zoom-track {
+    flex: 1;
+    height: 3px;
+    background: #e0e0e0;
+    border-radius: 2px;
+    position: relative;
+  }
+
+  .preview-zoom-thumb {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #4285f4;
+    top: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  /* --- Calendar dots --- */
+  .preview-cal-header {
+    display: flex;
+    gap: 2px;
+    padding: 6px 8px;
+    background: #f9f9f9;
+    align-items: flex-end;
+  }
+
+  .preview-cal-day {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    min-width: 20px;
+  }
+
+  .preview-cal-day-label {
+    font-size: 9px;
+    color: #888;
+  }
+
+  .preview-cal-dot-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+  }
+
+  .preview-cal-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+  }
+
+  /* --- Search input --- */
+  .preview-search {
+    padding: 6px 8px;
+    font-size: 11px;
+    color: #666;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 3px;
+    width: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  }
+
+  /* --- Sort dropdown --- */
+  .preview-sort {
+    padding: 6px 8px;
+    font-size: 11px;
+    color: #666;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 3px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    width: 100%;
+  }
+
+  /* --- Tab group header --- */
+  .preview-tab-group-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    background: #f8f8f8;
+    font-size: 11px;
+    color: #444;
+    border-bottom: 1px solid #eee;
+  }
+
+  .preview-tab-group-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .preview-tab-group-title {
+    font-weight: 600;
+  }
+
+  .preview-tab-group-count {
+    color: #999;
+    font-size: 10px;
+  }
+
+  /* --- Date header row --- */
+  .preview-date-header {
+    display: flex;
+    flex-direction: column;
+    background: #fafafa;
+    padding: 4px 0;
+  }
+
+  .preview-date-row {
+    display: flex;
+    gap: 3px;
+    padding: 0 8px;
+  }
+
+  .preview-month-cell {
+    font-size: 11px;
+    font-weight: 600;
+    color: #444;
+    padding: 4px 0;
+  }
+
+  .preview-weekday-cell {
+    width: 18px;
+    min-width: 18px;
+    text-align: center;
+    font-size: 10px;
+    color: #888;
+    padding: 2px 0;
+  }
+
+  .preview-day-cell {
+    width: 18px;
+    min-width: 18px;
+    text-align: center;
+    font-size: 11px;
+    color: #666;
+    padding: 2px 0;
+  }
+
+  .preview-day-cell.today {
+    background: #e8f0fe;
+    border-radius: 2px;
+    color: #1967d2;
+    font-weight: 600;
+  }
+
+  /* --- Delete button --- */
+  .preview-delete-btn {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-left: 2px solid #d32f2f;
+    padding: 2px 6px;
+    font-size: 10px;
+    color: #666;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    font-weight: 500;
+  }
+
+  .preview-bookmark-btn {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-left: 2px solid #f9ab00;
+    padding: 2px 6px;
+    font-size: 10px;
+    color: #666;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    font-weight: 500;
+  }
+
+  /* ===== CONTROLS ===== */
+  .controls {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    display: flex;
+    gap: 8px;
+    z-index: 100;
+  }
+
+  .controls button {
+    background: #222;
+    color: #999;
+    border: 1px solid #333;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .controls button:hover {
+    background: #2a2a2a;
+    color: #fff;
+    border-color: #555;
+  }
+
+  .shortcut-hint {
+    position: fixed;
+    bottom: 24px;
+    left: 24px;
+    font-size: 11px;
+    color: #444;
+    z-index: 100;
+  }
+
+  kbd {
+    display: inline-block;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-family: 'Inter', sans-serif;
+    font-size: 10px;
+    color: #888;
+    margin: 0 2px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Bullet History</h1>
+  <p>Your browsing history as a visual timeline in Chrome's side panel</p>
+</header>
+
+<div class="sections">
+
+  <!-- TIMELINE -->
+  <section>
+    <div class="section-title">Timeline</div>
+    <div class="feature-grid">
+
+      <div class="feature" data-id="timeline">
+        <div class="feature-text">
+          <div class="feature-name">Visual Timeline</div>
+          <div class="feature-desc">Every domain gets a colored horizontal line showing exactly when you were browsing it</div>
+        </div>
+        <div class="component-preview">
+          <div class="preview-timeline">
+            <div class="preview-tld-line">
+              <div class="preview-tld-label"><img src="https://www.google.com/s2/favicons?domain=github.com&sz=16" alt=""> github.com</div>
+              <div class="preview-line-track">
+                <div class="preview-line-seg" style="left:5%;width:15%;height:2px;background:hsl(200,55%,65%)"></div>
+                <div class="preview-line-seg" style="left:30%;width:25%;height:4px;background:hsl(200,55%,65%)"></div>
+                <div class="preview-line-seg" style="left:70%;width:20%;height:2px;background:hsl(200,55%,65%)"></div>
+              </div>
+            </div>
+            <div class="preview-tld-line">
+              <div class="preview-tld-label"><img src="https://www.google.com/s2/favicons?domain=youtube.com&sz=16" alt=""> youtube.com</div>
+              <div class="preview-line-track">
+                <div class="preview-line-seg" style="left:10%;width:8%;height:2px;background:hsl(0,55%,65%)"></div>
+                <div class="preview-line-seg" style="left:45%;width:35%;height:6px;background:hsl(0,55%,65%)"></div>
+              </div>
+            </div>
+            <div class="preview-tld-line">
+              <div class="preview-tld-label"><img src="https://www.google.com/s2/favicons?domain=gmail.com&sz=16" alt=""> gmail.com</div>
+              <div class="preview-line-track">
+                <div class="preview-line-seg" style="left:2%;width:90%;height:2px;background:hsl(120,55%,65%)"></div>
+              </div>
+            </div>
+            <div class="preview-tld-line">
+              <div class="preview-tld-label"><img src="https://www.google.com/s2/favicons?domain=stackoverflow.com&sz=16" alt=""> stackoverflow.com</div>
+              <div class="preview-line-track">
+                <div class="preview-line-seg" style="left:25%;width:10%;height:2px;background:hsl(35,55%,65%)"></div>
+                <div class="preview-line-seg" style="left:50%;width:5%;height:2px;background:hsl(35,55%,65%)"></div>
+                <div class="preview-line-seg" style="left:60%;width:12%;height:4px;background:hsl(35,55%,65%)"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature" data-id="concurrency">
+        <div class="feature-text">
+          <div class="feature-name">Concurrent Tabs</div>
+          <div class="feature-desc">Lines grow thicker when you have multiple tabs open for the same site</div>
+        </div>
+        <div class="component-preview">
+          <div class="preview-timeline" style="padding:12px 16px">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px">
+              <div style="display:flex;align-items:center;gap:6px">
+                <div style="width:40px;height:2px;background:hsl(200,55%,65%);border-radius:99px"></div>
+                <span style="font-size:10px;color:#888">1 tab</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <div style="width:40px;height:4px;background:hsl(200,55%,65%);border-radius:99px"></div>
+                <span style="font-size:10px;color:#888">2 tabs</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <div style="width:40px;height:6px;background:hsl(200,55%,65%);border-radius:99px"></div>
+                <span style="font-size:10px;color:#888">3 tabs</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <div style="width:40px;height:8px;background:hsl(200,55%,65%);border-radius:99px"></div>
+                <span style="font-size:10px;color:#888">4+ tabs</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature" data-id="zoom">
+        <div class="feature-text">
+          <div class="feature-name">Smooth Zoom</div>
+          <div class="feature-desc">Zoom from a bird's-eye week view down to individual hours with a single slider</div>
+        </div>
+        <div class="component-preview">
+          <div class="preview-zoom">
+            <span class="preview-zoom-label">W</span>
+            <div class="preview-zoom-track">
+              <div class="preview-zoom-thumb" style="left:55%"></div>
+            </div>
+            <span class="preview-zoom-label">H</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature" data-id="colors">
+        <div class="feature-text">
+          <div class="feature-name">Color-Coded Domains</div>
+          <div class="feature-desc">Each domain gets a unique pastel color, consistent across all views</div>
+        </div>
+        <div class="component-preview">
+          <div style="display:flex;gap:6px;padding:10px 12px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:4px"><div style="width:12px;height:12px;border-radius:3px;background:hsl(200,60%,75%)"></div><span style="font-size:10px;color:#666">github.com</span></div>
+            <div style="display:flex;align-items:center;gap:4px"><div style="width:12px;height:12px;border-radius:3px;background:hsl(0,60%,75%)"></div><span style="font-size:10px;color:#666">youtube.com</span></div>
+            <div style="display:flex;align-items:center;gap:4px"><div style="width:12px;height:12px;border-radius:3px;background:hsl(120,60%,75%)"></div><span style="font-size:10px;color:#666">gmail.com</span></div>
+            <div style="display:flex;align-items:center;gap:4px"><div style="width:12px;height:12px;border-radius:3px;background:hsl(35,60%,75%)"></div><span style="font-size:10px;color:#666">stackoverflow.com</span></div>
+            <div style="display:flex;align-items:center;gap:4px"><div style="width:12px;height:12px;border-radius:3px;background:hsl(270,60%,75%)"></div><span style="font-size:10px;color:#666">twitter.com</span></div>
+            <div style="display:flex;align-items:center;gap:4px"><div style="width:12px;height:12px;border-radius:3px;background:hsl(160,60%,75%)"></div><span style="font-size:10px;color:#666">notion.so</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature" data-id="favicons">
+        <div class="feature-text">
+          <div class="feature-name">Favicons</div>
+          <div class="feature-desc">Domain rows show site favicons for instant visual recognition</div>
+        </div>
+        <div class="component-preview">
+          <div style="display:flex;gap:10px;padding:10px 12px;align-items:center">
+            <img src="https://www.google.com/s2/favicons?domain=github.com&sz=16" width="16" height="16" alt="">
+            <img src="https://www.google.com/s2/favicons?domain=youtube.com&sz=16" width="16" height="16" alt="">
+            <img src="https://www.google.com/s2/favicons?domain=gmail.com&sz=16" width="16" height="16" alt="">
+            <img src="https://www.google.com/s2/favicons?domain=stackoverflow.com&sz=16" width="16" height="16" alt="">
+            <img src="https://www.google.com/s2/favicons?domain=twitter.com&sz=16" width="16" height="16" alt="">
+            <img src="https://www.google.com/s2/favicons?domain=notion.so&sz=16" width="16" height="16" alt="">
+            <img src="https://www.google.com/s2/favicons?domain=figma.com&sz=16" width="16" height="16" alt="">
+            <img src="https://www.google.com/s2/favicons?domain=reddit.com&sz=16" width="16" height="16" alt="">
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- DETAIL VIEWS -->
+  <section>
+    <div class="section-title">Detail Views</div>
+    <div class="feature-grid">
+
+      <div class="feature" data-id="domain-view">
+        <div class="feature-text">
+          <div class="feature-name">Domain View</div>
+          <div class="feature-desc">Click any domain to see every URL you visited, grouped by date</div>
+        </div>
+        <div class="component-preview">
+          <div style="padding:6px 8px;font-size:12px;font-weight:600;color:#333;border-bottom:1px solid #eee">github.com</div>
+          <div class="preview-url-item">
+            <div class="preview-url-left">
+              <span class="preview-url-count">12</span>
+              <span class="preview-url-time">45m</span>
+              <span class="preview-url-time open-time">2h</span>
+            </div>
+            <div class="preview-url-right">
+              <img src="https://www.google.com/s2/favicons?domain=github.com&sz=16" width="14" height="14" alt="">
+              <span class="preview-url-title">anthropics/claude-code: CLI tool</span>
+            </div>
+          </div>
+          <div class="preview-url-item">
+            <div class="preview-url-left">
+              <span class="preview-url-count">5</span>
+              <span class="preview-url-time">15m</span>
+              <span class="preview-url-time open-time">40m</span>
+            </div>
+            <div class="preview-url-right">
+              <img src="https://www.google.com/s2/favicons?domain=github.com&sz=16" width="14" height="14" alt="">
+              <span class="preview-url-title">Pull request #482 — Fix virtual scroll</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature" data-id="day-view">
+        <div class="feature-text">
+          <div class="feature-name">Day View</div>
+          <div class="feature-desc">Click any day in the header to see all activity across all sites</div>
+        </div>
+        <div class="component-preview">
+          <div class="preview-date-header">
+            <div class="preview-date-row">
+              <div class="preview-month-cell">April 2026</div>
+            </div>
+            <div class="preview-date-row">
+              <div class="preview-weekday-cell">S</div>
+              <div class="preview-weekday-cell">M</div>
+              <div class="preview-weekday-cell">T</div>
+              <div class="preview-weekday-cell">W</div>
+              <div class="preview-weekday-cell">T</div>
+              <div class="preview-weekday-cell">F</div>
+              <div class="preview-weekday-cell">S</div>
+            </div>
+            <div class="preview-date-row">
+              <div class="preview-day-cell">17</div>
+              <div class="preview-day-cell">18</div>
+              <div class="preview-day-cell">19</div>
+              <div class="preview-day-cell">20</div>
+              <div class="preview-day-cell today">21</div>
+              <div class="preview-day-cell" style="color:#ccc">22</div>
+              <div class="preview-day-cell" style="color:#ccc">23</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature" data-id="time-tracking">
+        <div class="feature-text">
+          <div class="feature-name">Time Tracking</div>
+          <div class="feature-desc">Active time (tab focused) vs. open time (tab in background) for every URL</div>
+        </div>
+        <div class="component-preview">
+          <div class="preview-url-item">
+            <div class="preview-url-left">
+              <span class="preview-url-count">8</span>
+              <span class="preview-url-time">1h 20m</span>
+              <span class="preview-url-time open-time">4h 15m</span>
+            </div>
+            <div class="preview-url-right">
+              <img src="https://www.google.com/s2/favicons?domain=docs.google.com&sz=16" width="14" height="14" alt="">
+              <span class="preview-url-title">Q2 Planning Doc — Google Docs</span>
+            </div>
+          </div>
+          <div style="padding:4px 8px;display:flex;gap:16px;font-size:10px;background:#fafafa">
+            <span style="color:#7cb342">green = active time</span>
+            <span style="color:#ab7fdb">purple = open time</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature" data-id="search">
+        <div class="feature-text">
+          <div class="feature-name">Search & Filter</div>
+          <div class="feature-desc">Filter domains instantly by name, URL, or page title</div>
+        </div>
+        <div class="component-preview" style="padding:8px">
+          <input class="preview-search" type="text" value="Search domains..." disabled style="color:#999">
+        </div>
+      </div>
+
+      <div class="feature" data-id="sort">
+        <div class="feature-text">
+          <div class="feature-name">Sort Options</div>
+          <div class="feature-desc">Sort by most recent, most visited, or alphabetical</div>
+        </div>
+        <div class="component-preview" style="padding:8px;display:flex;flex-direction:column;gap:4px">
+          <select class="preview-sort" disabled>
+            <option>Most Recent</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="feature" data-id="delete">
+        <div class="feature-text">
+          <div class="feature-name">Delete History</div>
+          <div class="feature-desc">Remove individual URLs or entire domains with a single click</div>
+        </div>
+        <div class="component-preview" style="padding:8px;display:flex;gap:6px">
+          <span class="preview-delete-btn">Delete URL</span>
+          <span class="preview-bookmark-btn">Bookmark</span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- TAB MANAGEMENT -->
+  <section>
+    <div class="section-title">Tab Management</div>
+    <div class="feature-grid">
+
+      <div class="feature" data-id="active-tabs">
+        <div class="feature-text">
+          <div class="feature-name">Active Tabs</div>
+          <div class="feature-desc">See every open tab with time-open duration and window grouping</div>
+        </div>
+        <div class="component-preview">
+          <div class="preview-url-item">
+            <div class="preview-url-left">
+              <span class="preview-url-time open-time">3h 12m</span>
+            </div>
+            <div class="preview-url-right">
+              <img src="https://www.google.com/s2/favicons?domain=github.com&sz=16" width="14" height="14" alt="">
+              <span class="preview-url-title">anthropics/claude-code: CLI tool</span>
+            </div>
+          </div>
+          <div class="preview-url-item">
+            <div class="preview-url-left">
+              <span class="preview-url-time open-time">45m</span>
+            </div>
+            <div class="preview-url-right">
+              <img src="https://www.google.com/s2/favicons?domain=figma.com&sz=16" width="14" height="14" alt="">
+              <span class="preview-url-title">Dashboard Redesign — Figma</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature" data-id="tab-groups">
+        <div class="feature-text">
+          <div class="feature-name">Tab Group Colors</div>
+          <div class="feature-desc">Chrome tab groups shown with their colors, titles, and bracket lines</div>
+        </div>
+        <div class="component-preview">
+          <div class="preview-tab-group-header">
+            <div class="preview-tab-group-dot" style="background:#4285f4"></div>
+            <span class="preview-tab-group-title">Work</span>
+            <span class="preview-tab-group-count">4 tabs</span>
+          </div>
+          <div class="preview-url-item" style="border-left:2px solid #4285f4;margin-left:4px">
+            <div class="preview-url-left"><span class="preview-url-time open-time">1h</span></div>
+            <div class="preview-url-right">
+              <img src="https://www.google.com/s2/favicons?domain=linear.app&sz=16" width="14" height="14" alt="">
+              <span class="preview-url-title">Sprint Board — Linear</span>
+            </div>
+          </div>
+          <div class="preview-tab-group-header">
+            <div class="preview-tab-group-dot" style="background:#ea4335"></div>
+            <span class="preview-tab-group-title">Research</span>
+            <span class="preview-tab-group-count">2 tabs</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature" data-id="closed-tabs">
+        <div class="feature-text">
+          <div class="feature-name">Recently Closed</div>
+          <div class="feature-desc">Restore accidentally closed tabs or entire tab groups</div>
+        </div>
+        <div class="component-preview">
+          <div class="preview-url-item" style="opacity:0.7">
+            <div class="preview-url-left"><span style="font-size:10px;color:#999">2m ago</span></div>
+            <div class="preview-url-right">
+              <img src="https://www.google.com/s2/favicons?domain=reddit.com&sz=16" width="14" height="14" alt="">
+              <span class="preview-url-title">r/webdev — Best practices for...</span>
+            </div>
+          </div>
+          <div class="preview-url-item" style="opacity:0.5">
+            <div class="preview-url-left"><span style="font-size:10px;color:#999">15m ago</span></div>
+            <div class="preview-url-right">
+              <img src="https://www.google.com/s2/favicons?domain=twitter.com&sz=16" width="14" height="14" alt="">
+              <span class="preview-url-title">Thread: Chrome Extensions in 2026</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature" data-id="bookmarks">
+        <div class="feature-text">
+          <div class="feature-name">Bookmarks</div>
+          <div class="feature-desc">Browse and organize bookmarks with drag-and-drop between folders</div>
+        </div>
+        <div class="component-preview">
+          <div style="padding:6px 8px;font-size:11px;color:#444;background:#f8f8f8;border-bottom:1px solid #eee;display:flex;align-items:center;gap:4px">
+            <span>📁</span> <span style="font-weight:600">Dev Resources</span>
+          </div>
+          <div class="preview-url-item" style="padding-left:20px">
+            <div class="preview-url-right">
+              <img src="https://www.google.com/s2/favicons?domain=developer.chrome.com&sz=16" width="14" height="14" alt="">
+              <span class="preview-url-title">Chrome Extensions Docs</span>
+            </div>
+          </div>
+          <div class="preview-url-item" style="padding-left:20px">
+            <div class="preview-url-right">
+              <img src="https://www.google.com/s2/favicons?domain=web.dev&sz=16" width="14" height="14" alt="">
+              <span class="preview-url-title">web.dev — Performance guides</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- CALENDAR -->
+  <section>
+    <div class="section-title">Calendar</div>
+    <div class="feature-grid">
+
+      <div class="feature" data-id="cal-dots">
+        <div class="feature-text">
+          <div class="feature-name">Calendar Event Dots</div>
+          <div class="feature-desc">Google Calendar events appear as colored dots in the timeline header</div>
+        </div>
+        <div class="component-preview">
+          <div class="preview-cal-header">
+            <div class="preview-cal-day">
+              <div class="preview-cal-dot-grid">
+                <div class="preview-cal-dot" style="background:#4285f4"></div>
+                <div class="preview-cal-dot" style="background:#ea4335"></div>
+              </div>
+              <span class="preview-cal-day-label">M</span>
+            </div>
+            <div class="preview-cal-day">
+              <div class="preview-cal-dot-grid">
+                <div class="preview-cal-dot" style="background:#4285f4"></div>
+              </div>
+              <span class="preview-cal-day-label">T</span>
+            </div>
+            <div class="preview-cal-day">
+              <div class="preview-cal-dot-grid">
+                <div class="preview-cal-dot" style="background:#fbbc04"></div>
+                <div class="preview-cal-dot" style="background:#4285f4"></div>
+                <div class="preview-cal-dot" style="background:#34a853"></div>
+              </div>
+              <span class="preview-cal-day-label">W</span>
+            </div>
+            <div class="preview-cal-day">
+              <div class="preview-cal-dot-grid">
+                <div class="preview-cal-dot" style="background:#ea4335"></div>
+                <div class="preview-cal-dot" style="background:#ea4335"></div>
+                <div class="preview-cal-dot" style="background:#4285f4"></div>
+                <div class="preview-cal-dot" style="background:#fbbc04"></div>
+              </div>
+              <span class="preview-cal-day-label">T</span>
+            </div>
+            <div class="preview-cal-day">
+              <div class="preview-cal-dot-grid">
+                <div class="preview-cal-dot" style="background:#34a853"></div>
+              </div>
+              <span class="preview-cal-day-label">F</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature" data-id="cal-overlay">
+        <div class="feature-text">
+          <div class="feature-name">Events + Browsing</div>
+          <div class="feature-desc">See what you were browsing during each meeting or event</div>
+        </div>
+        <div class="component-preview">
+          <div style="padding:6px 8px;font-size:11px;font-weight:600;color:#333;border-bottom:1px solid #eee">Monday, April 21</div>
+          <div style="padding:4px 8px;font-size:11px;color:#4285f4;border-left:3px solid #4285f4;margin:4px 8px;background:#f0f4ff">
+            <div style="font-weight:600">Sprint Planning</div>
+            <div style="color:#888;font-size:10px">10:00am — 11:00am</div>
+          </div>
+          <div class="preview-url-item">
+            <div class="preview-url-left"><span class="preview-url-time">35m</span></div>
+            <div class="preview-url-right">
+              <img src="https://www.google.com/s2/favicons?domain=linear.app&sz=16" width="14" height="14" alt="">
+              <span class="preview-url-title">Sprint Board — Linear</span>
+            </div>
+          </div>
+          <div class="preview-url-item">
+            <div class="preview-url-left"><span class="preview-url-time">20m</span></div>
+            <div class="preview-url-right">
+              <img src="https://www.google.com/s2/favicons?domain=meet.google.com&sz=16" width="14" height="14" alt="">
+              <span class="preview-url-title">Google Meet — Sprint Planning</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature" data-id="cal-multi">
+        <div class="feature-text">
+          <div class="feature-name">Multiple Calendars</div>
+          <div class="feature-desc">Connect multiple Google Calendars and pick which ones to show</div>
+        </div>
+        <div class="component-preview">
+          <div style="padding:8px;display:flex;flex-direction:column;gap:6px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:#333">
+              <div style="width:12px;height:12px;border-radius:2px;background:#4285f4"></div>
+              <span>Work Calendar</span>
+              <span style="margin-left:auto;color:#999;font-size:10px">ON</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:#333">
+              <div style="width:12px;height:12px;border-radius:2px;background:#ea4335"></div>
+              <span>Personal</span>
+              <span style="margin-left:auto;color:#999;font-size:10px">ON</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:#999">
+              <div style="width:12px;height:12px;border-radius:2px;background:#ccc"></div>
+              <span>Holidays</span>
+              <span style="margin-left:auto;font-size:10px">OFF</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- NAVIGATION -->
+  <section>
+    <div class="section-title">Navigation</div>
+    <div class="feature-grid">
+
+      <div class="feature" data-id="bottom-menu">
+        <div class="feature-text">
+          <div class="feature-name">Bottom Menu</div>
+          <div class="feature-desc">Switch between History, Bookmarks, Active Tabs, and Recently Closed</div>
+        </div>
+        <div class="component-preview">
+          <div class="preview-bottom-menu">
+            <div class="preview-menu-btn history active">History</div>
+            <div class="preview-menu-btn bookmarks">Bookmarks</div>
+            <div class="preview-menu-btn tabs">Active</div>
+            <div class="preview-menu-btn closed">Closed</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature" data-id="side-panel">
+        <div class="feature-text">
+          <div class="feature-name">Side Panel</div>
+          <div class="feature-desc">Always accessible in Chrome's side panel — no new tabs needed</div>
+        </div>
+        <div class="component-preview" style="padding:12px;text-align:center">
+          <div style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#666;background:#fff;border:1px solid #e0e0e0;padding:4px 10px;border-radius:4px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="2" y="3" width="20" height="18" rx="2" stroke="#666" stroke-width="1.5" fill="none"/><line x1="15" y1="3" x2="15" y2="21" stroke="#666" stroke-width="1.5"/></svg>
+            Side Panel
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- PRIVACY -->
+  <section>
+    <div class="section-title">Privacy</div>
+    <div class="feature-grid">
+
+      <div class="feature" data-id="local">
+        <div class="feature-text">
+          <div class="feature-name">100% Local Data</div>
+          <div class="feature-desc">All data stays in Chrome's local storage on your device. No accounts, no servers.</div>
+        </div>
+      </div>
+
+      <div class="feature" data-id="no-tracking">
+        <div class="feature-text">
+          <div class="feature-name">No Analytics</div>
+          <div class="feature-desc">Zero telemetry, zero tracking. The only network requests are favicons and optional Calendar.</div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+</div>
+
+<div class="controls">
+  <button onclick="clearAll()">Clear All</button>
+</div>
+
+<div class="shortcut-hint">
+  <kbd>Click</kbd> feature to highlight &nbsp;&middot;&nbsp; <kbd>Esc</kbd> clear all
+</div>
+
+<script>
+  const features = document.querySelectorAll('.feature');
+
+  features.forEach(f => {
+    f.addEventListener('click', () => {
+      const wasHighlighted = f.classList.contains('highlighted');
+
+      if (wasHighlighted) {
+        clearAll();
+      } else {
+        features.forEach(other => {
+          other.classList.remove('highlighted');
+          other.classList.add('dimmed');
+        });
+        f.classList.remove('dimmed');
+        f.classList.add('highlighted');
+      }
+    });
+  });
+
+  function clearAll() {
+    features.forEach(f => {
+      f.classList.remove('highlighted', 'dimmed');
+    });
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') clearAll();
+  });
+</script>
+
+</body>
+</html>

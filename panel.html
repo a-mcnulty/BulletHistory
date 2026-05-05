@@ -21,9 +21,10 @@
               <text x="12" y="17" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="white" text-anchor="middle">31</text>
             </svg>
           </button>
-          <div class="view-toggle" id="viewToggle">
-            <button class="view-toggle-btn" data-view="hour">Hour</button>
-            <button class="view-toggle-btn active" data-view="day">Day</button>
+          <div class="zoom-slider-wrap" id="zoomSliderWrap">
+            <span class="zoom-label">W</span>
+            <input type="range" id="zoomSlider" class="zoom-slider" min="0" max="100" value="50">
+            <span class="zoom-label">H</span>
           </div>
         </div>
         <input type="text" id="searchInput" class="search-input" placeholder="Search domains...">
