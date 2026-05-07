@@ -1026,28 +1026,16 @@ class BulletHistory {
         }
       }
 
-      // Refresh the grid
-      this.updateVirtualGrid();
-
-      // Update expanded view based on what's currently open
-      if (this.expandedViewType === 'domain' && this.currentDomain === domain) {
-        this.showDomainView(domain);
-      } else if (this.expandedViewType === 'day' && this.currentDate) {
-        // Refresh day view if the new visit is on the current date
-        if (this.currentDate === visitDate) {
-          this.showDayExpandedView(this.currentDate);
-        }
-      } else if (this.expandedViewType === 'hour' && this.currentHour) {
-        // Refresh hour view if the new visit is in the current hour
-        const visitHour = `${visitDate}T${String(new Date(historyItem.lastVisitTime).getHours()).padStart(2, '0')}`;
-        if (this.currentHour === visitHour) {
-          this.showHourExpandedView(this.currentHour);
-        }
-      } else if (this.expandedViewType === 'recent' || this.expandedViewType === 'full') {
-        // Refresh full history view
-        this.showFullHistory();
+      // Debounce UI refresh to avoid blinking from rapid-fire visits
+      this._pendingLiveRefresh = true;
+      if (!this._liveRefreshTimer) {
+        this._liveRefreshTimer = setTimeout(() => {
+          this._liveRefreshTimer = null;
+          this._pendingLiveRefresh = false;
+          this.updateVirtualGrid();
+          this.refreshExpandedView();
+        }, 300);
       }
-      // Note: bookmarks and closed tabs don't need live updates from history
 
     } catch (e) {
       console.warn('Invalid URL in live update:', historyItem.url);
@@ -1361,33 +1349,78 @@ class BulletHistory {
     return this.timelineStartMs + hours * 1000 * 60 * 60;
   }
 
+  applyZoom(newZoomLevel, pivotX) {
+    const cellGridWrapper = document.getElementById('cellGridWrapper');
+    const oldPxPerHr = this.pixelsPerHour;
+    this.zoomLevel = Math.max(0, Math.min(100, Math.round(newZoomLevel)));
+    this.updatePixelsPerHour();
+    localStorage.setItem('bulletHistoryZoomLevel', this.zoomLevel);
+
+    const slider = document.getElementById('zoomSlider');
+    if (slider) slider.value = this.zoomLevel;
+
+    const anchorX = pivotX !== undefined ? pivotX : cellGridWrapper.scrollLeft + cellGridWrapper.clientWidth / 2;
+    const ratio = this.pixelsPerHour / oldPxPerHr;
+    const newScrollLeft = anchorX * ratio - (anchorX - cellGridWrapper.scrollLeft);
+
+    this.renderDateHeader();
+    this.setupVirtualGrid();
+
+    requestAnimationFrame(() => {
+      cellGridWrapper.scrollLeft = Math.max(0, newScrollLeft);
+      this.updateVirtualGrid(true);
+    });
+  }
+
   setupZoomSlider() {
     const slider = document.getElementById('zoomSlider');
     if (!slider) return;
     slider.value = this.zoomLevel;
 
     slider.addEventListener('input', () => {
-      const oldPxPerHr = this.pixelsPerHour;
-      this.zoomLevel = parseInt(slider.value);
-      this.updatePixelsPerHour();
-      localStorage.setItem('bulletHistoryZoomLevel', this.zoomLevel);
-
-      // Maintain scroll position (keep center of viewport at same time)
-      const cellGridWrapper = document.getElementById('cellGridWrapper');
-      const centerX = cellGridWrapper.scrollLeft + cellGridWrapper.clientWidth / 2;
-      const centerTime = this.xToTime(centerX / oldPxPerHr * oldPxPerHr);
-      // Actually just use the old center position
-      const ratio = this.pixelsPerHour / oldPxPerHr;
-      const newScrollLeft = centerX * ratio - cellGridWrapper.clientWidth / 2;
-
-      this.renderDateHeader();
-      this.setupVirtualGrid();
-
-      requestAnimationFrame(() => {
-        cellGridWrapper.scrollLeft = Math.max(0, newScrollLeft);
-        this.updateVirtualGrid(true);
-      });
+      this.applyZoom(parseInt(slider.value));
     });
+
+    // Pinch-to-zoom on the grid area
+    const cellGridWrapper = document.getElementById('cellGridWrapper');
+
+    // Trackpad pinch (ctrl+wheel on macOS/Chrome)
+    cellGridWrapper.addEventListener('wheel', (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const delta = -e.deltaY * 0.5;
+      const pivotX = cellGridWrapper.scrollLeft + e.offsetX;
+      this.applyZoom(this.zoomLevel + delta, pivotX);
+    }, { passive: false });
+
+    // Touch pinch gesture
+    let touchStartDist = 0;
+    let touchStartZoom = 0;
+    let touchPivotX = 0;
+
+    cellGridWrapper.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        touchStartDist = Math.hypot(dx, dy);
+        touchStartZoom = this.zoomLevel;
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const rect = cellGridWrapper.getBoundingClientRect();
+        touchPivotX = cellGridWrapper.scrollLeft + (midX - rect.left);
+      }
+    }, { passive: true });
+
+    cellGridWrapper.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const scale = dist / touchStartDist;
+        const delta = (scale - 1) * 60;
+        this.applyZoom(touchStartZoom + delta, touchPivotX);
+      }
+    }, { passive: false });
   }
 
   // Load tab session data from storage

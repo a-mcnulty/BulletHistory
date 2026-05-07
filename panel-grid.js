@@ -25,33 +25,32 @@ BulletHistory.prototype.renderDateHeader = function() {
 
     const pxPerHour = this.pixelsPerHour;
     const pxPerDay = pxPerHour * 24;
+    const pxPerWeek = pxPerDay * 7;
     const todayStr = this.formatDate(new Date());
 
-    // Determine label granularity based on zoom
-    const showHourLabels = pxPerDay > 200; // Enough room for hour ticks
-    const showDayLabels = pxPerDay > 8;     // Enough room for day numbers
+    // Determine header granularity — matches cell granularity thresholds (10px min)
+    const minCellWidth = 10;
+    let headerMode;
+    if (pxPerHour >= minCellWidth + 1) headerMode = 'hour';
+    else if (pxPerDay >= minCellWidth + 3) headerMode = 'day';
+    else if (pxPerWeek >= minCellWidth + 3) headerMode = 'week';
+    else headerMode = 'month';
 
-    // Iterate through each date in our range
+    // --- Month row (top) — always show month spans ---
     let currentMonth = '';
     let monthStartX = 0;
 
     this.dates.forEach((dateStr, index) => {
       const date = new Date(dateStr + 'T00:00:00');
       if (isNaN(date.getTime())) return;
-
       const dayStartMs = date.getTime();
       const dayEndMs = dayStartMs + 24 * 60 * 60 * 1000;
       const x1 = this.timeToX(dayStartMs) + 8;
-      const dayWidthFull = this.timeToX(dayEndMs) - this.timeToX(dayStartMs);
-      const cellWidth = Math.max(1, dayWidthFull - 3);
-      const dayWidth = cellWidth;
 
       const monthName = date.toLocaleString('en-US', { month: 'short' });
       const year = date.getFullYear();
       const monthYearKey = `${monthName} ${year}`;
-      const isToday = dateStr === todayStr;
 
-      // Month row — emit cell when month changes
       if (monthYearKey !== currentMonth) {
         if (currentMonth) {
           const monthCell = document.createElement('div');
@@ -66,30 +65,220 @@ BulletHistory.prototype.renderDateHeader = function() {
         monthStartX = x1;
       }
 
-      // Day row — show day number (or day+weekday at higher zoom)
-      if (showDayLabels) {
+      if (index === this.dates.length - 1) {
+        const endX = this.timeToX(dayEndMs) + 8;
+        const monthCell = document.createElement('div');
+        monthCell.className = 'month-cell';
+        const mWidth = endX - monthStartX;
+        monthCell.style.width = `${mWidth}px`;
+        monthCell.style.minWidth = `${mWidth}px`;
+        monthCell.textContent = currentMonth;
+        monthRow.appendChild(monthCell);
+      }
+    });
+
+    // --- Day row + Weekday row — adapt to zoom granularity ---
+
+    if (headerMode === 'hour') {
+      // Weekday row (upper): day labels spanning 24 hours each
+      // Day row (lower): hour ticks
+      this.dates.forEach((dateStr) => {
+        const date = new Date(dateStr + 'T00:00:00');
+        if (isNaN(date.getTime())) return;
+        const dayStartMs = date.getTime();
+        const x1 = this.timeToX(dayStartMs) + 8;
+        const dayWidth = pxPerDay - 3;
+        const isToday = dateStr === todayStr;
+
+        const dayLabel = document.createElement('div');
+        dayLabel.className = 'weekday-cell';
+        if (isToday) dayLabel.classList.add('col-today');
+        dayLabel.style.position = 'absolute';
+        dayLabel.style.left = `${x1}px`;
+        dayLabel.style.width = `${dayWidth}px`;
+        dayLabel.style.fontSize = '11px';
+        dayLabel.style.fontWeight = '500';
+        dayLabel.style.color = '#666';
+        dayLabel.dataset.date = dateStr;
+        dayLabel.style.cursor = 'pointer';
+        dayLabel.addEventListener('click', () => this.showDayExpandedView(dateStr));
+        const weekday = date.toLocaleString('en-US', { weekday: 'short' });
+        dayLabel.textContent = `${weekday} ${date.getDate()}`;
+        weekdayRow.appendChild(dayLabel);
+
+        // Hour ticks below the date
+        for (let h = 0; h < 24; h++) {
+          const hourMs = dayStartMs + h * 60 * 60 * 1000;
+          const hx = this.timeToX(hourMs) + 8;
+          const showLabel = pxPerHour > 15 || (h % 3 === 0 && pxPerHour > 5) || (h % 6 === 0);
+          if (!showLabel) continue;
+
+          const hourCell = document.createElement('div');
+          hourCell.className = 'day-cell hour-tick';
+          hourCell.style.position = 'absolute';
+          hourCell.style.left = `${hx}px`;
+          hourCell.style.width = `${pxPerHour}px`;
+          const hour12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+          hourCell.textContent = `${hour12}${h >= 12 ? 'p' : 'a'}`;
+          dayRow.appendChild(hourCell);
+        }
+      });
+
+    } else if (headerMode === 'day') {
+      // Day row: day numbers, weekday row: weekday letters
+      const dayWidth = Math.max(minCellWidth, pxPerDay - 3);
+      const narrow = dayWidth < 20;
+      const labelEveryN = narrow ? Math.ceil(14 / dayWidth) : 1;
+
+      this.dates.forEach((dateStr, idx) => {
+        const date = new Date(dateStr + 'T00:00:00');
+        if (isNaN(date.getTime())) return;
+        const dayStartMs = date.getTime();
+        const x1 = this.timeToX(dayStartMs) + 8;
+        const isToday = dateStr === todayStr;
+        const showLabel = (idx % labelEveryN === 0) || isToday;
+
         const dayCell = document.createElement('div');
         dayCell.className = 'day-cell';
         if (isToday) dayCell.classList.add('col-today');
+        if (narrow) dayCell.classList.add('rotated');
         dayCell.style.position = 'absolute';
         dayCell.style.left = `${x1}px`;
         dayCell.style.width = `${dayWidth}px`;
         dayCell.dataset.date = dateStr;
         dayCell.style.cursor = 'pointer';
         dayCell.addEventListener('click', () => this.showDayExpandedView(dateStr));
+        if (showLabel) {
+          if (dayWidth > 40) {
+            const weekday = date.toLocaleString('en-US', { weekday: 'short' });
+            dayCell.textContent = `${weekday} ${date.getDate()}`;
+          } else {
+            dayCell.textContent = date.getDate();
+          }
+        }
+        dayRow.appendChild(dayCell);
 
-        const dayNum = date.getDate();
-        if (dayWidth > 40) {
-          const weekday = date.toLocaleString('en-US', { weekday: 'short' });
-          dayCell.textContent = `${weekday} ${dayNum}`;
-        } else {
-          dayCell.textContent = dayNum;
+        if (showLabel && !narrow) {
+          const weekdayCell = document.createElement('div');
+          weekdayCell.className = 'weekday-cell';
+          if (isToday) weekdayCell.classList.add('col-today');
+          weekdayCell.style.position = 'absolute';
+          weekdayCell.style.left = `${x1}px`;
+          weekdayCell.style.width = `${dayWidth}px`;
+          weekdayCell.textContent = date.toLocaleString('en-US', { weekday: 'short' }).charAt(0);
+          weekdayRow.appendChild(weekdayCell);
+        }
+      });
+
+    } else if (headerMode === 'week') {
+      // Day row: week date ranges, weekday row: empty
+      const first = new Date(this.dates[0] + 'T00:00:00');
+      const dayOfWeek = (first.getDay() + 6) % 7;
+      let weekStart = first.getTime() - dayOfWeek * 24 * 60 * 60 * 1000;
+      const lastMs = new Date(this.dates[this.dates.length - 1] + 'T23:59:59').getTime();
+      const labelMinSpacing = 12;
+      let lastLabelEnd = -Infinity;
+
+      while (weekStart <= lastMs) {
+        const weekEnd = weekStart + 7 * 24 * 60 * 60 * 1000;
+        const x1 = this.timeToX(weekStart) + 8;
+        const x2 = this.timeToX(weekEnd) + 8;
+        const naturalWidth = (x2 - x1) - 3;
+        const cellWidth = Math.max(1, naturalWidth);
+        const wStart = new Date(weekStart);
+        const wEnd = new Date(weekEnd - 1);
+        const containsToday = this.dates.some(d => {
+          const ms = new Date(d + 'T00:00:00').getTime();
+          return ms >= weekStart && ms < weekEnd && d === todayStr;
+        });
+
+        const narrow = cellWidth < 20;
+        const showLabel = x1 >= lastLabelEnd;
+
+        const dayCell = document.createElement('div');
+        dayCell.className = 'day-cell';
+        if (containsToday) dayCell.classList.add('col-today');
+        if (narrow && showLabel) dayCell.classList.add('rotated');
+        dayCell.style.position = 'absolute';
+        dayCell.style.left = `${x1}px`;
+        dayCell.style.width = `${cellWidth}px`;
+        dayCell.style.cursor = 'pointer';
+        dayCell.addEventListener('click', () => {
+          const clickDate = this.formatDate(wStart);
+          this.showDayExpandedView(clickDate);
+        });
+
+        if (showLabel) {
+          const startLabel = `${wStart.toLocaleString('en-US', { month: 'short' })} ${wStart.getDate()}`;
+          if (cellWidth > 60 || narrow) {
+            dayCell.textContent = `${startLabel}–${wEnd.getDate()}`;
+          } else {
+            dayCell.textContent = startLabel;
+          }
+          lastLabelEnd = x1 + Math.max(cellWidth, labelMinSpacing);
+        }
+        dayRow.appendChild(dayCell);
+
+        weekStart = weekEnd;
+      }
+
+    } else {
+      // Month mode — day row shows month names centered over their span
+      const seen = new Set();
+      const monthCells = [];
+      this.dates.forEach((dateStr) => {
+        const key = dateStr.substring(0, 7);
+        if (seen.has(key)) return;
+        seen.add(key);
+        const [y, m] = key.split('-').map(Number);
+        const startMs = new Date(y, m - 1, 1).getTime();
+        const endMs = new Date(y, m, 1).getTime();
+        const x1 = this.timeToX(startMs) + 8;
+        const x2 = this.timeToX(endMs) + 8;
+        const naturalWidth = (x2 - x1) - 3;
+        monthCells.push({ key, y, m, startMs, endMs, x1, naturalWidth });
+      });
+
+      // Thin labels to avoid overlap — skip cells that would collide
+      const labelMinSpacing = 12;
+      let lastLabelEnd = -Infinity;
+
+      for (const mc of monthCells) {
+        const cellWidth = Math.max(1, mc.naturalWidth);
+        const monthDate = new Date(mc.y, mc.m - 1, 1);
+        const containsToday = todayStr.startsWith(mc.key);
+        const narrow = cellWidth < 20;
+        const showLabel = mc.x1 >= lastLabelEnd;
+
+        const dayCell = document.createElement('div');
+        dayCell.className = 'day-cell';
+        if (containsToday) dayCell.classList.add('col-today');
+        if (narrow && showLabel) dayCell.classList.add('rotated');
+        dayCell.style.position = 'absolute';
+        dayCell.style.left = `${mc.x1}px`;
+        dayCell.style.width = `${cellWidth}px`;
+        dayCell.style.cursor = 'pointer';
+        dayCell.addEventListener('click', () => {
+          this.showDayExpandedView(this.formatDate(monthDate));
+        });
+        if (showLabel) {
+          dayCell.textContent = monthDate.toLocaleString('en-US', { month: 'short' });
+          lastLabelEnd = mc.x1 + Math.max(cellWidth, labelMinSpacing);
         }
         dayRow.appendChild(dayCell);
       }
+    }
 
-      // Calendar events — position event column at the day's x
-      if (dayWidth >= 6) {
+    // --- Calendar events row — only at day zoom or higher ---
+    if (headerMode === 'day' || headerMode === 'hour') {
+      this.dates.forEach((dateStr) => {
+        const date = new Date(dateStr + 'T00:00:00');
+        if (isNaN(date.getTime())) return;
+        const x1 = this.timeToX(date.getTime()) + 8;
+        const dayWidth = Math.max(1, pxPerDay - 3);
+        if (dayWidth < 6) return;
+        const isToday = dateStr === todayStr;
+
         const eventColumn = document.createElement('div');
         eventColumn.className = 'calendar-event-column';
         eventColumn.dataset.date = dateStr;
@@ -107,63 +296,33 @@ BulletHistory.prototype.renderDateHeader = function() {
           eventColumn.addEventListener('click', () => this.showDayExpandedView(dateStr));
         }
         calendarEventsRow.appendChild(eventColumn);
-      }
-
-      // Weekday row — show weekday letter at low zoom, or hour labels at high zoom
-      if (showHourLabels) {
-        // Render hour tick marks within this day
-        for (let h = 0; h < 24; h++) {
-          const hourMs = dayStartMs + h * 60 * 60 * 1000;
-          const hx = this.timeToX(hourMs) + 8;
-          const hourWidth = pxPerHour;
-
-          // Only show select hours to avoid crowding
-          const showLabel = hourWidth > 15 || (h % 3 === 0 && hourWidth > 5) || (h % 6 === 0);
-          if (!showLabel) continue;
-
-          const hourCell = document.createElement('div');
-          hourCell.className = 'weekday-cell hour-tick';
-          hourCell.style.position = 'absolute';
-          hourCell.style.left = `${hx}px`;
-          hourCell.style.width = `${hourWidth}px`;
-
-          const hour12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
-          const ampm = h >= 12 ? 'p' : 'a';
-          hourCell.textContent = `${hour12}${ampm}`;
-          weekdayRow.appendChild(hourCell);
-        }
-      } else if (showDayLabels) {
-        // Show weekday letter
-        const weekdayCell = document.createElement('div');
-        weekdayCell.className = 'weekday-cell';
-        if (isToday) weekdayCell.classList.add('col-today');
-        weekdayCell.style.position = 'absolute';
-        weekdayCell.style.left = `${x1}px`;
-        weekdayCell.style.width = `${dayWidth}px`;
-        weekdayCell.textContent = date.toLocaleString('en-US', { weekday: 'short' }).charAt(0);
-        weekdayRow.appendChild(weekdayCell);
-      }
-
-      // Last month cell
-      if (index === this.dates.length - 1) {
-        const endX = this.timeToX(dayEndMs) + 8;
-        const monthCell = document.createElement('div');
-        monthCell.className = 'month-cell';
-        const mWidth = endX - monthStartX;
-        monthCell.style.width = `${mWidth}px`;
-        monthCell.style.minWidth = `${mWidth}px`;
-        monthCell.textContent = currentMonth;
-        monthRow.appendChild(monthCell);
-      }
-    });
+      });
+    }
 
     // Make rows position relative for absolute children
+    const rotatedCells = dayRow.querySelectorAll('.rotated');
+    let rotatedHeight = 0;
+    if (rotatedCells.length > 0) {
+      let maxChars = 0;
+      rotatedCells.forEach(c => { if (c.textContent.length > maxChars) maxChars = c.textContent.length; });
+      rotatedHeight = Math.max(20, maxChars * 6 + 6);
+    }
     dayRow.style.position = 'relative';
     dayRow.style.width = `${totalWidth}px`;
-    dayRow.style.height = '20px';
+    dayRow.style.minHeight = rotatedHeight ? `${rotatedHeight}px` : '20px';
+    dayRow.style.height = rotatedHeight ? `${rotatedHeight}px` : 'auto';
     weekdayRow.style.position = 'relative';
     weekdayRow.style.width = `${totalWidth}px`;
-    weekdayRow.style.height = showHourLabels ? '16px' : '16px';
+    if (headerMode === 'hour') {
+      weekdayRow.style.minHeight = '20px';
+      weekdayRow.style.height = 'auto';
+    } else if (headerMode === 'week' || headerMode === 'month') {
+      weekdayRow.style.minHeight = '0';
+      weekdayRow.style.height = '0';
+    } else {
+      weekdayRow.style.minHeight = '16px';
+      weekdayRow.style.height = 'auto';
+    }
     calendarEventsRow.style.position = 'relative';
     calendarEventsRow.style.width = `${totalWidth}px`;
 };
@@ -306,18 +465,103 @@ BulletHistory.prototype.renderVirtualRows = function(startRow, endRow, viewStart
 
     const totalWidth = this.getTimelineWidth() + 16;
     const pxPerDay = this.pixelsPerHour * 24;
+    const pxPerHour = this.pixelsPerHour;
 
-    // Pre-compute maxCount for visible domains
+    // Determine cell granularity based on zoom
+    // Pick the finest granularity where each cell is at least 10px wide
+    const minCellWidth = 10;
+    let cellMode, cellGap;
+    if (pxPerHour >= minCellWidth + 1) {
+      cellMode = 'hour';
+      cellGap = 1;
+    } else if (pxPerDay >= minCellWidth + 3) {
+      cellMode = 'day';
+      cellGap = 3;
+    } else if (pxPerDay * 7 >= minCellWidth + 3) {
+      cellMode = 'week';
+      cellGap = 3;
+    } else {
+      cellMode = 'month';
+      cellGap = 3;
+    }
+
+    // Build cell buckets: [{startMs, endMs, dateKeys: [...]}]
+    const cellBuckets = [];
+    if (cellMode === 'month') {
+      // Group by calendar month
+      const seen = new Set();
+      for (const dateStr of this.dates) {
+        const key = dateStr.substring(0, 7); // YYYY-MM
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const [y, m] = key.split('-').map(Number);
+        const startMs = new Date(y, m - 1, 1).getTime();
+        const endMs = new Date(y, m, 1).getTime();
+        cellBuckets.push({ startMs, endMs, dateKeys: [] });
+      }
+      for (const dateStr of this.dates) {
+        const dayMs = new Date(dateStr + 'T00:00:00').getTime();
+        for (const b of cellBuckets) {
+          if (dayMs >= b.startMs && dayMs < b.endMs) { b.dateKeys.push(dateStr); break; }
+        }
+      }
+    } else if (cellMode === 'week') {
+      // Group by ISO week (Monday-aligned)
+      const first = new Date(this.dates[0] + 'T00:00:00');
+      const dayOfWeek = (first.getDay() + 6) % 7; // Monday = 0
+      let weekStart = new Date(first.getTime() - dayOfWeek * 24 * 60 * 60 * 1000).getTime();
+      const lastDate = new Date(this.dates[this.dates.length - 1] + 'T23:59:59').getTime();
+      while (weekStart <= lastDate) {
+        const weekEnd = weekStart + 7 * 24 * 60 * 60 * 1000;
+        cellBuckets.push({ startMs: weekStart, endMs: weekEnd, dateKeys: [] });
+        weekStart = weekEnd;
+      }
+      for (const dateStr of this.dates) {
+        const dayMs = new Date(dateStr + 'T00:00:00').getTime();
+        for (const b of cellBuckets) {
+          if (dayMs >= b.startMs && dayMs < b.endMs) { b.dateKeys.push(dateStr); break; }
+        }
+      }
+    } else if (cellMode === 'hour') {
+      // Generate hour buckets from timeline range, only within visible range
+      const hourMs = 60 * 60 * 1000;
+      let t = Math.floor(viewStartMs / hourMs) * hourMs;
+      const end = Math.min(viewEndMs + hourMs, this.timelineEndMs + hourMs);
+      while (t < end) {
+        const dateStr = new Date(t).toISOString().split('T')[0];
+        const hourStr = `${dateStr}T${String(new Date(t).getHours()).padStart(2, '0')}`;
+        cellBuckets.push({ startMs: t, endMs: t + hourMs, dateKeys: [dateStr], hourStr });
+        t += hourMs;
+      }
+    } else {
+      // Day buckets
+      for (const dateStr of this.dates) {
+        const startMs = new Date(dateStr + 'T00:00:00').getTime();
+        cellBuckets.push({ startMs, endMs: startMs + 24 * 60 * 60 * 1000, dateKeys: [dateStr] });
+      }
+    }
+
+    // Helper to get aggregated count for a bucket
+    const getBucketCount = (domain, bucket) => {
+      if (cellMode === 'hour' && bucket.hourStr) {
+        return this.getUniqueUrlCountForCell(domain, bucket.hourStr, true);
+      }
+      let total = 0;
+      for (const dateStr of bucket.dateKeys) {
+        total += this.getUniqueUrlCountForCell(domain, dateStr, false);
+      }
+      return total;
+    };
+
+    // Pre-compute maxCount for visible domains at current granularity
     this.maxCountCache.clear();
     for (let rowIndex = startRow; rowIndex < endRow; rowIndex++) {
       const domain = this.sortedDomains[rowIndex];
       if (!domain || domain.trim().length === 0 || this.maxCountCache.has(domain)) continue;
       let maxCount = 0;
-      if (this.historyData[domain]) {
-        for (const dateStr of Object.keys(this.historyData[domain].days)) {
-          const count = this.getUniqueUrlCountForCell(domain, dateStr, false);
-          if (count > maxCount) maxCount = count;
-        }
+      for (const bucket of cellBuckets) {
+        const count = getBucketCount(domain, bucket);
+        if (count > maxCount) maxCount = count;
       }
       this.maxCountCache.set(domain, maxCount || 1);
     }
@@ -394,20 +638,18 @@ BulletHistory.prototype.renderVirtualRows = function(startRow, endRow, viewStart
       cellRow.style.width = `${totalWidth}px`;
       cellRow.style.height = `${this.rowHeight}px`;
 
-      for (const dateStr of this.dates) {
-        const dayStartMs = new Date(dateStr + 'T00:00:00').getTime();
-        const dayEndMs = dayStartMs + 24 * 60 * 60 * 1000;
-        if (dayEndMs < viewStartMs || dayStartMs > viewEndMs) continue;
+      for (const bucket of cellBuckets) {
+        if (bucket.endMs < viewStartMs || bucket.startMs > viewEndMs) continue;
 
-        const x1 = this.timeToX(dayStartMs) + 8;
-        const cellWidth = Math.max(1, pxPerDay - 3);
-        const isToday = dateStr === todayStr;
-        const count = this.getUniqueUrlCountForCell(domain, dateStr, false);
+        const x1 = this.timeToX(bucket.startMs) + 8;
+        const x2 = this.timeToX(bucket.endMs) + 8;
+        const cellWidth = Math.max(minCellWidth, (x2 - x1) - cellGap);
+        const count = getBucketCount(domain, bucket);
 
         const cell = document.createElement('div');
         cell.className = 'cell';
         cell.dataset.domain = domain;
-        cell.dataset.date = dateStr;
+        cell.dataset.date = bucket.dateKeys[0] || '';
         cell.dataset.rowIndex = rowIndex;
         cell.style.left = `${x1}px`;
         cell.style.width = `${cellWidth}px`;
@@ -420,7 +662,8 @@ BulletHistory.prototype.renderVirtualRows = function(startRow, endRow, viewStart
           cell.dataset.count = 0;
         }
 
-        if (isToday) cell.classList.add('col-today');
+        const bucketContainsToday = bucket.dateKeys.includes(todayStr);
+        if (bucketContainsToday) cell.classList.add('col-today');
 
         cellRow.appendChild(cell);
       }
